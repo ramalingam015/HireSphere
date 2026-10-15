@@ -1,17 +1,17 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { Briefcase, Sparkles, AlertCircle, Mail, CheckCircle2, RefreshCw } from "lucide-react";
+import { Briefcase, Sparkles, AlertCircle, Mail, CheckCircle2, RefreshCw, Eye, EyeOff } from "lucide-react";
 
 export const Login = ({ onSwitchToRegister }) => {
   const { login, loginAsDemo, verifyEmail, resendVerification } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   // Unverified email handler state
   const [needsVerification, setNeedsVerification] = useState(false);
-  const [demoCode, setDemoCode] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifySuccessMsg, setVerifySuccessMsg] = useState("");
@@ -27,13 +27,7 @@ export const Login = ({ onSwitchToRegister }) => {
       const msg = err.message || "Invalid email or password";
       if (msg.toLowerCase().includes("email not verified")) {
         setNeedsVerification(true);
-        // Attempt to extract demo code from error message if backend sent one
-        const match = msg.match(/Demo code:\s*(\d{6})/i);
-        if (match && match[1]) {
-          setDemoCode(match[1]);
-          setVerificationCode(match[1]);
-        }
-        setError(msg);
+        setError("Email verification is required before signing in.");
       } else {
         setError(msg);
       }
@@ -51,7 +45,7 @@ export const Login = ({ onSwitchToRegister }) => {
       await verifyEmail(email, verificationCode.trim());
       setVerifySuccessMsg("Email verified successfully! Logging you in...");
     } catch (err) {
-      setError(err.message || "Invalid verification code");
+      setError(err.message || "Invalid verification code. Please check and try again.");
     } finally {
       setVerifyLoading(false);
     }
@@ -60,18 +54,15 @@ export const Login = ({ onSwitchToRegister }) => {
   const handleResend = async () => {
     setError("");
     try {
-      const res = await resendVerification(email);
-      if (res && res.verification_code) {
-        setDemoCode(res.verification_code);
-        setVerificationCode(res.verification_code);
-      }
-      setVerifySuccessMsg("A new verification code has been dispatched!");
-      setTimeout(() => setVerifySuccessMsg(""), 4000);
+      await resendVerification(email);
+      setVerifySuccessMsg("A new verification code has been dispatched to your email!");
+      setTimeout(() => setVerifySuccessMsg(""), 5000);
     } catch (err) {
       setError(err.message || "Failed to resend verification code");
     }
   };
 
+  // 1. Unverified Email Verification Prompt View
   if (needsVerification) {
     return (
       <div style={{ maxWidth: "440px", margin: "2rem auto" }}>
@@ -85,7 +76,8 @@ export const Login = ({ onSwitchToRegister }) => {
             </div>
             <h2 style={{ fontSize: "1.35rem", fontWeight: 700 }}>Email Verification Required</h2>
             <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-              Please verify <strong style={{ color: "var(--text-main)" }}>{email}</strong> before signing in.
+              A 6-digit confirmation code has been sent to<br />
+              <strong style={{ color: "var(--text-main)" }}>{email}</strong>
             </p>
           </div>
 
@@ -111,29 +103,10 @@ export const Login = ({ onSwitchToRegister }) => {
             </div>
           )}
 
-          {demoCode && (
-            <div style={{
-              background: "#f0fdf4", border: "1px dashed #86efac", borderRadius: "8px",
-              padding: "0.75rem", marginBottom: "1.25rem", fontSize: "0.82rem", color: "#166534"
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>🧪 <strong>Demo Code:</strong> <code style={{ fontSize: "1.05rem", fontWeight: 700, letterSpacing: "2px" }}>{demoCode}</code></span>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
-                  onClick={() => setVerificationCode(demoCode)}
-                >
-                  Use Code
-                </button>
-              </div>
-            </div>
-          )}
-
           <form onSubmit={handleVerify}>
             <div className="form-group">
               <label className="form-label" style={{ textAlign: "center", display: "block" }}>
-                Enter 6-Digit Code
+                Enter 6-Digit Verification Code
               </label>
               <input
                 type="text"
@@ -151,6 +124,9 @@ export const Login = ({ onSwitchToRegister }) => {
                   padding: "0.6rem"
                 }}
               />
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textAlign: "center", display: "block", marginTop: "0.3rem" }}>
+                Check your email inbox or backend console logs
+              </span>
             </div>
 
             <button
@@ -184,6 +160,7 @@ export const Login = ({ onSwitchToRegister }) => {
     );
   }
 
+  // 2. Standard Login Form
   return (
     <div style={{ maxWidth: "440px", margin: "2rem auto" }}>
       <div className="card">
@@ -270,14 +247,38 @@ export const Login = ({ onSwitchToRegister }) => {
 
           <div className="form-group">
             <label className="form-label">Password</label>
-            <input 
-              type="password" 
-              className="form-input" 
-              required 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-            />
+            <div style={{ position: "relative" }}>
+              <input 
+                type={showPassword ? "text" : "password"} 
+                className="form-input" 
+                style={{ paddingRight: "2.5rem" }}
+                required 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: "absolute",
+                  right: "0.75rem",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--text-muted)",
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "0.25rem"
+                }}
+                title={showPassword ? "Hide password" : "Show password"}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           <button 

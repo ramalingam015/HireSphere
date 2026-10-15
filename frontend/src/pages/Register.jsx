@@ -1,12 +1,15 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { Briefcase, AlertCircle, ShieldCheck, Mail, CheckCircle2, RefreshCw } from "lucide-react";
+import { Briefcase, AlertCircle, ShieldCheck, Mail, CheckCircle2, RefreshCw, Eye, EyeOff } from "lucide-react";
 
 export const Register = ({ onSwitchToLogin }) => {
   const { register, verifyEmail, resendVerification } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [role, setRole] = useState("candidate"); // candidate, recruiter, admin
   const [company, setCompany] = useState("");
   const [adminSecretKey, setAdminSecretKey] = useState("");
@@ -16,7 +19,6 @@ export const Register = ({ onSwitchToLogin }) => {
   // Email verification state
   const [verificationStep, setVerificationStep] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
-  const [demoCode, setDemoCode] = useState("");
   const [enteredCode, setEnteredCode] = useState("");
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifySuccessMsg, setVerifySuccessMsg] = useState("");
@@ -25,6 +27,17 @@ export const Register = ({ onSwitchToLogin }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+
+    // 1. Password confirmation check
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match. Please re-enter identical passwords in both fields.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -39,8 +52,7 @@ export const Register = ({ onSwitchToLogin }) => {
 
       if (res && res.user && !res.user.is_email_verified) {
         setPendingEmail(email);
-        setDemoCode(res.verification_code || "");
-        setEnteredCode(res.verification_code || ""); // Pre-fill evaluation code for convenience
+        setEnteredCode("");
         setVerificationStep(true);
       }
     } catch (err) {
@@ -59,7 +71,7 @@ export const Register = ({ onSwitchToLogin }) => {
       await verifyEmail(pendingEmail, enteredCode.trim());
       setVerifySuccessMsg("Email verified successfully! Logging you in...");
     } catch (err) {
-      setVerifyError(err.message || "Invalid verification code");
+      setVerifyError(err.message || "Invalid 6-digit verification code. Please check and try again.");
     } finally {
       setVerifyLoading(false);
     }
@@ -68,13 +80,9 @@ export const Register = ({ onSwitchToLogin }) => {
   const handleResend = async () => {
     setVerifyError("");
     try {
-      const res = await resendVerification(pendingEmail);
-      if (res && res.verification_code) {
-        setDemoCode(res.verification_code);
-        setEnteredCode(res.verification_code);
-      }
-      setVerifySuccessMsg("A new 6-digit code has been dispatched!");
-      setTimeout(() => setVerifySuccessMsg(""), 4000);
+      await resendVerification(pendingEmail);
+      setVerifySuccessMsg("A new 6-digit verification code has been dispatched to your email!");
+      setTimeout(() => setVerifySuccessMsg(""), 5000);
     } catch (err) {
       setVerifyError(err.message || "Failed to resend code");
     }
@@ -121,25 +129,6 @@ export const Register = ({ onSwitchToLogin }) => {
             </div>
           )}
 
-          {demoCode && (
-            <div style={{
-              background: "#f0fdf4", border: "1px dashed #86efac", borderRadius: "8px",
-              padding: "0.75rem", marginBottom: "1.25rem", fontSize: "0.82rem", color: "#166534"
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>🧪 <strong>Demo/Evaluation Code:</strong> <code style={{ fontSize: "1.05rem", fontWeight: 700, letterSpacing: "2px" }}>{demoCode}</code></span>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
-                  onClick={() => setEnteredCode(demoCode)}
-                >
-                  Use Code
-                </button>
-              </div>
-            </div>
-          )}
-
           <form onSubmit={handleVerifyEmail}>
             <div className="form-group">
               <label className="form-label" style={{ textAlign: "center", display: "block" }}>
@@ -161,6 +150,9 @@ export const Register = ({ onSwitchToLogin }) => {
                   padding: "0.6rem"
                 }}
               />
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textAlign: "center", display: "block", marginTop: "0.3rem" }}>
+                Please check your email inbox or backend console logs
+              </span>
             </div>
 
             <button
@@ -322,16 +314,88 @@ export const Register = ({ onSwitchToLogin }) => {
             </div>
           )}
 
+          {/* Password with Eye Toggle */}
           <div className="form-group">
-            <label className="form-label">Password</label>
-            <input 
-              type="password" 
-              className="form-input" 
-              required 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-            />
+            <label className="form-label">Password * (min 6 characters)</label>
+            <div style={{ position: "relative" }}>
+              <input 
+                type={showPassword ? "text" : "password"} 
+                className="form-input" 
+                style={{ paddingRight: "2.5rem" }}
+                required 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: "absolute",
+                  right: "0.75rem",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--text-muted)",
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "0.25rem"
+                }}
+                title={showPassword ? "Hide password" : "Show password"}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Confirm Password with Eye Toggle */}
+          <div className="form-group">
+            <label className="form-label">Confirm Password *</label>
+            <div style={{ position: "relative" }}>
+              <input 
+                type={showConfirmPassword ? "text" : "password"} 
+                className="form-input" 
+                style={{ paddingRight: "2.5rem" }}
+                required 
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                style={{
+                  position: "absolute",
+                  right: "0.75rem",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--text-muted)",
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "0.25rem"
+                }}
+                title={showConfirmPassword ? "Hide password" : "Show password"}
+                tabIndex={-1}
+              >
+                {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            {confirmPassword && password !== confirmPassword && (
+              <span style={{ fontSize: "0.75rem", color: "#dc2626", marginTop: "0.25rem", display: "block" }}>
+                ⚠️ Passwords do not match
+              </span>
+            )}
+            {confirmPassword && password === confirmPassword && (
+              <span style={{ fontSize: "0.75rem", color: "#16a34a", marginTop: "0.25rem", display: "block" }}>
+                ✓ Passwords match
+              </span>
+            )}
           </div>
 
           <button 

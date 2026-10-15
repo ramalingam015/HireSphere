@@ -58,15 +58,14 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
-    # In production, this code is emailed to the user via SMTP / SendGrid / SES
-    print(f"\n[EMAIL DISPATCH SIMULATOR] To: {new_user.email} | Verification Code: {verification_code}\n")
+    # In development/demo, this code is logged to server console
+    print(f"\n[EMAIL DISPATCH] To: {new_user.email} | 6-Digit Verification Code: {verification_code}\n")
 
     token = create_access_token({"sub": str(new_user.id), "role": new_user.role})
     return {
         "access_token": token,
         "token_type": "bearer",
         "user": new_user,
-        "verification_code": verification_code,  # Provided for easy local/demo verification
         "message": f"Account created! A 6-digit verification code has been dispatched to {new_user.email}."
     }
 
@@ -126,10 +125,9 @@ def resend_verification(req: ResendVerificationRequest, db: Session = Depends(ge
     user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
     db.commit()
 
-    print(f"\n[EMAIL RESEND SIMULATOR] To: {user.email} | New Code: {code}\n")
+    print(f"\n[EMAIL RESEND] To: {user.email} | New 6-Digit Code: {code}\n")
     return {
-        "message": f"New verification code sent to {user.email}.",
-        "verification_code": code
+        "message": f"A new 6-digit verification code has been dispatched to {user.email}."
     }
 
 @router.post("/login", response_model=Token)
@@ -152,9 +150,10 @@ def login(login_in: UserLogin, db: Session = Depends(get_db)):
             user.email_verification_code = str(random.randint(100000, 999999))
             user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
             db.commit()
+        print(f"\n[EMAIL DISPATCH] To: {user.email} | Verification Code: {user.email_verification_code}\n")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Email not verified. Please enter the 6-digit verification code sent to {user.email}. (Demo code: {user.email_verification_code})"
+            detail=f"Email not verified. A 6-digit verification code has been sent to {user.email}. Please verify your email before logging in."
         )
 
     token = create_access_token({"sub": str(user.id), "role": user.role})

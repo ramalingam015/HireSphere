@@ -121,7 +121,6 @@ function handleMockFallback(endpoint, options) {
       access_token: "demo-mock-jwt-token",
       token_type: "bearer",
       user: newUser,
-      verification_code: "123456",
       message: `Account created! A 6-digit verification code has been dispatched to ${newUser.email}.`
     };
   }
@@ -151,8 +150,7 @@ function handleMockFallback(endpoint, options) {
   // Auth resend verification
   if (endpoint.startsWith("/api/auth/resend-verification")) {
     return {
-      message: "New 6-digit verification code sent.",
-      verification_code: "654321"
+      message: "New 6-digit verification code sent."
     };
   }
 
