@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install python dependencies
 COPY backend/requirements.txt ./backend/
 RUN pip install --no-cache-dir -r ./backend/requirements.txt \
-    && pip install --no-cache-dir psycopg2-binary
+    && pip install --no-cache-dir "psycopg[binary]" psycopg2-binary
 
 # Copy backend code
 COPY backend/ ./backend/
