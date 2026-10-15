@@ -1,0 +1,9 @@
+**/node_modules
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.git
+**/.gitignore
+backend/recruitment.db
+backend/uploads/resumes/*
+!backend/uploads/resumes/.gitkeep

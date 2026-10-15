@@ -1,0 +1,290 @@
+# Complete Step-by-Step Deployment Guide
+**HireSphere Job Recruitment & Interview Management Platform**
+
+This guide provides end-to-end instructions for deploying HireSphere to production or your organization's server. Choose the method that best matches your target hosting environment:
+
+- **Method 1:** [Docker & Docker Compose (Recommended for Any VPS / Cloud Server)](#method-1-docker--docker-compose-recommended)
+- **Method 2:** [Cloud PaaS Hosting (Render / Railway / Fly.io — Zero Server Management)](#method-2-cloud-paas-deployment-render--railway)
+- **Method 3:** [Ubuntu / Debian Linux Server with Nginx, Systemd & Let's Encrypt SSL](#method-3-traditional-linux-vps-ubuntu--nginx--systemd)
+- **Method 4:** [Campus LAN / Local Windows Server Deployment](#method-4-campus-lan--local-server-deployment)
+
+---
+
+## ⚙️ Key Environment Variables Reference
+
+Configure these environment variables in your server's `.env` file or cloud dashboard:
+
+| Variable | Default Value | Description |
+| :--- | :--- | :--- |
+| `SECRET_KEY` | *(Built-in default)* | Cryptographic secret key used to sign JWT auth tokens. Generate a secure random string for production. |
+| `DATABASE_URL` | `sqlite:///backend/recruitment.db` | Database connection string. Use `postgresql://user:pass@host:5432/dbname` for production PostgreSQL. |
+| `PORT` | `8000` | Port on which the FastAPI application listens. |
+| `OLLAMA_URL` | `http://localhost:11434` | Endpoint for Ollama AI inference (optional; system falls back to built-in NLP heuristics if unavailable). |
+| `OLLAMA_MODEL` | `qwen2.5:3b` | Ollama model name to use for AI job parsing. |
+| `VITE_API_BASE` | `""` (Empty string) | API root URL for frontend. Keep empty for same-origin deployment. |
+
+---
+
+## Method 1: Docker & Docker Compose (Recommended)
+
+Docker Compose bundles the FastAPI application, the compiled React frontend, and a high-performance PostgreSQL 16 database into isolated, persistent containers.
+
+### Prerequisites
+- Docker Engine & Docker Compose installed on your host machine ([Install Docker](https://docs.docker.com/engine/install/)).
+
+### Step 1: Transfer the Project Files to Your Server
+Unzip `recruitment_platform.zip` on your server:
+```bash
+unzip recruitment_platform.zip -d recruitment_platform
+cd recruitment_platform
+```
+
+### Step 2: Configure Environment Secrets (Optional)
+Inspect or edit `docker-compose.yml`:
+```yaml
+environment:
+  - SECRET_KEY=generate_a_secure_random_key_here
+  - DATABASE_URL=postgresql://postgres:postgrespassword@db:5432/recruitment_db
+```
+*(You can generate a strong secret key using `openssl rand -hex 32`)*
+
+### Step 3: Build and Start Containers
+Run the following command in the project root:
+```bash
+docker compose up -d --build
+```
+
+### Step 4: Verify Deployment
+Check that the containers are healthy and running:
+```bash
+docker compose ps
+docker compose logs -f web
+```
+- Open `http://<your-server-ip>:8000` in your web browser.
+- The interactive API Swagger documentation is available at `http://<your-server-ip>:8000/docs`.
+
+### Step 5: Managing the Service
+- **Stop containers:** `docker compose down`
+- **Restart containers:** `docker compose restart`
+- **View live logs:** `docker compose logs -f`
+
+---
+
+## Method 2: Cloud PaaS Deployment (Render / Railway)
+
+If you don't want to manage a Linux virtual machine, you can deploy in minutes on free/inexpensive cloud platforms like **Render.com** or **Railway.app**.
+
+### Deploying on Render (Step-by-Step)
+
+1. **Push your code to GitHub / GitLab:**
+   - Create a repository named `recruitment_platform`.
+   - Push the contents of the unzipped folder to your repository.
+
+2. **Create a PostgreSQL Database on Render:**
+   - Log into [Render Dashboard](https://dashboard.render.com).
+   - Click **New +** → **PostgreSQL**.
+   - Name it `hiresphere-db` and select the Free tier.
+   - Click **Create Database**.
+   - Once provisioned, copy the **Internal Database URL** (e.g., `postgresql://user:pass@dpg-xxxx/dbname`).
+
+3. **Create the Web Service:**
+   - Click **New +** → **Web Service**.
+   - Connect your GitHub repository.
+   - **Environment:** `Docker` (Render will automatically detect `Dockerfile`).
+   - In the **Environment Variables** section, add:
+     - `DATABASE_URL`: *(Paste the Internal Database URL copied in Step 2)*
+     - `SECRET_KEY`: *(Enter a random 32-character string)*
+     - `PORT`: `8000`
+   - Click **Create Web Service**.
+
+4. **Add Persistent Disk for Resume Uploads:**
+   - Under your Web Service settings, go to **Disks**.
+   - Click **Add Disk**:
+     - **Name:** `resumes-disk`
+     - **Mount Path:** `/app/backend/uploads/resumes`
+     - **Size:** `1 GB` (or larger depending on expected resume volume).
+
+5. **Done!** Render gives you a free HTTPS domain (e.g., `https://hiresphere-app.onrender.com`).
+
+---
+
+## Method 3: Traditional Linux VPS (Ubuntu + Nginx + Systemd)
+
+This approach provides enterprise-level control over a Virtual Private Server (AWS EC2, DigitalOcean Droplet, Linode, Hetzner, etc.).
+
+### Step 1: Initial Server Setup (Ubuntu 22.04 / 24.04 LTS)
+SSH into your server and update system packages:
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y python3-pip python3-venv nginx postgresql postgresql-contrib git curl
+```
+
+### Step 2: Configure PostgreSQL Database
+```bash
+sudo -u postgres psql
+```
+Inside the PostgreSQL prompt:
+```sql
+CREATE DATABASE recruitment_db;
+CREATE USER hiresphere WITH ENCRYPTED PASSWORD 'StrongPassword123!';
+GRANT ALL PRIVILEGES ON DATABASE recruitment_db TO hiresphere;
+\q
+```
+
+### Step 3: Deploy Application Code
+```bash
+# Create application directory
+sudo mkdir -p /var/www/hiresphere
+sudo chown -R $USER:$USER /var/www/hiresphere
+
+# Extract or copy your project files into /var/www/hiresphere
+cd /var/www/hiresphere
+# (Upload recruitment_platform contents here)
+
+# Create Python virtual environment
+cd /var/www/hiresphere/backend
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install psycopg2-binary
+```
+
+### Step 4: Configure Environment & Seed Data
+Create `/var/www/hiresphere/backend/.env`:
+```bash
+cat << 'EOF' > /var/www/hiresphere/backend/.env
+DATABASE_URL=postgresql://hiresphere:StrongPassword123!@localhost:5432/recruitment_db
+SECRET_KEY=9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f
+PORT=8000
+EOF
+```
+
+Run initial database seeding:
+```bash
+source venv/bin/activate
+python -c "from app.seed import seed_database; seed_database()"
+```
+
+### Step 5: Create Systemd Background Service
+Create the service configuration:
+```bash
+sudo nano /etc/systemd/system/hiresphere.service
+```
+Paste the following:
+```ini
+[Unit]
+Description=HireSphere FastAPI Application Server
+After=network.target postgresql.service
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/hiresphere/backend
+EnvironmentFile=/var/www/hiresphere/backend/.env
+ExecStart=/var/www/hiresphere/backend/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 4
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Set permissions, enable, and start the service:
+```bash
+sudo chown -R www-data:www-data /var/www/hiresphere
+sudo systemctl daemon-reload
+sudo systemctl enable hiresphere
+sudo systemctl start hiresphere
+sudo systemctl status hiresphere
+```
+
+### Step 6: Configure Nginx Reverse Proxy & File Upload Limits
+Edit `/etc/nginx/sites-available/hiresphere`:
+```bash
+sudo nano /etc/nginx/sites-available/hiresphere
+```
+Paste the configuration:
+```nginx
+server {
+    listen 80;
+    server_name yourdomain.com www.yourdomain.com; # Or your server IP
+
+    client_max_body_size 10M; # Allows 5 MB PDF uploads + overhead
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Enable the Nginx site and test configuration:
+```bash
+sudo ln -s /etc/nginx/sites-available/hiresphere /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+### Step 7: Enable Free SSL with Let's Encrypt Certbot
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+```
+Certbot will automatically install SSL certificates and set up automated renewals!
+
+---
+
+## Method 4: Campus LAN / Local Server Deployment
+
+To run HireSphere within a college lab, campus intranet, or on a Windows local server accessible by other devices on the same Wi-Fi/LAN:
+
+### Step 1: Find Server's Local IP Address
+- **On Windows:** Open PowerShell, run `ipconfig`. Look for `IPv4 Address` (e.g., `192.168.1.100`).
+- **On Linux/Mac:** Run `hostname -I` or `ifconfig`.
+
+### Step 2: Start the Server on `0.0.0.0`
+The backend script is already configured to bind to `0.0.0.0:8000`, which listens on all network interfaces!
+Run:
+```cmd
+run.bat
+```
+or
+```bash
+python backend/main.py
+```
+
+### Step 3: Open Firewall Port 8000 (Windows)
+If other devices cannot connect, allow port 8000 through the Windows Firewall:
+```powershell
+New-NetFirewallRule -DisplayName "HireSphere Web Server" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow
+```
+
+### Step 4: Access From Any Device
+Students, recruiters, and admins on the same network can open their browser and visit:
+```
+http://192.168.1.100:8000
+```
+*(Replace `192.168.1.100` with your server's actual IP address)*
+
+---
+
+## 🛡️ Production Verification Checklist
+
+- [ ] **Admin Account Login:** Log into `admin@recruit.com` / `admin123` and verify the Admin Console loads.
+- [ ] **Recruiter Workflow:** Log into `recruiter@techcorp.com` / `recruiter123` and verify you can view candidate ATS scores and create interview slots.
+- [ ] **Student ATS Test:** Log into `student@university.edu` / `student123`, choose a job, upload a test PDF resume, verify the ATS percentage score calculates deterministically, and submit.
+- [ ] **Interview Booking & Concurrency:** Verify candidate can book an interview slot and reschedule atomically.
+- [ ] **Direct Chat:** Verify sending text messages between applicant and recruiter.
+- [ ] **Hold/Suspension Overlay:** Test deactivating a recruiter from the admin console and ensure the candidate's view reflects the hold message while preserving application state.
+- [ ] **Database Backups:** Configure daily backups of PostgreSQL or `recruitment.db` via cron:
+  ```bash
+  # Daily postgres backup at 2 AM
+  0 2 * * * pg_dump -U hiresphere recruitment_db > /backup/db_$(date +\%F).sql
+  ```
