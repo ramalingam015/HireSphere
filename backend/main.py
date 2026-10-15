@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base
 from app.config import UPLOAD_DIR
+from app.migrations import run_auto_migrations
 from app.seed import seed_database
 from app.routes import (
     auth_routes, jobs_routes, applications_routes,
@@ -16,6 +17,7 @@ from app.routes import (
 async def lifespan(app: FastAPI):
     # Startup: ensure tables created and initial demo seed runs
     Base.metadata.create_all(bind=engine)
+    run_auto_migrations()
     try:
         seed_database()
     except Exception as e:

@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.db
+*.sqlite3
+
+node_modules/
+dist/
+.env
+.DS_Store
+
+backend/uploads/resumes/*
+!backend/uploads/resumes/.gitkeep

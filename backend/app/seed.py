@@ -5,9 +5,11 @@ from app.models import (
     Post, PostLike, PostComment, Connection
 )
 from app.auth import get_password_hash
+from app.migrations import run_auto_migrations
 
 def seed_database():
     Base.metadata.create_all(bind=engine)
+    run_auto_migrations()
     db = SessionLocal()
 
     if db.query(User).first():
