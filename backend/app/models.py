@@ -43,6 +43,12 @@ class User(Base):
     location = Column(String(255), default="")
     skills = Column(Text, default="")  # comma separated
     is_active = Column(Boolean, default=True)
+    
+    # Email verification
+    is_email_verified = Column(Boolean, default=False)
+    email_verification_code = Column(String(10), nullable=True)
+    email_verification_expiry = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -63,6 +69,7 @@ class Job(Base):
     experience_level = Column(String(100), default="Mid-level")
     salary_range = Column(String(100), default="$70,000 - $100,000")
     description = Column(Text, nullable=False)
+    application_deadline = Column(DateTime, nullable=True)  # Job application deadline
     is_active = Column(Boolean, default=True)
     is_flagged_spam = Column(Boolean, default=False)
     spam_reason = Column(String(255), default="")

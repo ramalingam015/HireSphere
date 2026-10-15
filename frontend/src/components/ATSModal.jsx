@@ -109,6 +109,16 @@ export const ATSModal = ({ job, onClose, onAppliedSuccess }) => {
             <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
               Applying for: <strong style={{ color: "var(--primary)" }}>{job.title}</strong> at {job.company}
             </p>
+            {job.application_deadline && (
+              <p style={{ 
+                fontSize: "0.78rem", 
+                color: new Date(job.application_deadline) < new Date() ? "#dc2626" : "#2563eb",
+                fontWeight: 500,
+                marginTop: "0.15rem"
+              }}>
+                ⏰ Deadline: {new Date(job.application_deadline).toLocaleDateString()}
+              </p>
+            )}
           </div>
           <button onClick={onClose} style={{ color: "var(--text-muted)" }}>
             <X size={20} />

@@ -20,10 +20,25 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    admin_secret_key: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: str
     password: str
+
+class EmailVerificationRequest(BaseModel):
+    email: str
+    code: str
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+class EmailVerificationResponse(BaseModel):
+    message: str
+    is_verified: bool
+    access_token: Optional[str] = None
+    token_type: Optional[str] = "bearer"
+    user: Optional["UserOut"] = None
 
 class UserProfileUpdate(BaseModel):
     full_name: Optional[str] = None
@@ -37,6 +52,7 @@ class UserOut(UserBase):
     id: int
     recruiter_status: str
     is_active: bool
+    is_email_verified: bool = False
     created_at: datetime
 
     class Config:
@@ -55,6 +71,7 @@ class JobCreate(BaseModel):
     experience_level: str = "Mid-level"
     salary_range: str = "$70,000 - $100,000"
     description: str
+    application_deadline: Optional[datetime] = None
     skills: List[SkillItem]  # FR-REC-01: at least 1 required skill
 
 class JobUpdate(BaseModel):
@@ -65,6 +82,7 @@ class JobUpdate(BaseModel):
     experience_level: Optional[str] = None
     salary_range: Optional[str] = None
     description: Optional[str] = None
+    application_deadline: Optional[datetime] = None
     is_active: Optional[bool] = None
     skills: Optional[List[SkillItem]] = None
 
@@ -78,6 +96,7 @@ class JobOut(BaseModel):
     experience_level: str
     salary_range: str
     description: str
+    application_deadline: Optional[datetime] = None
     is_active: bool
     is_flagged_spam: bool
     spam_reason: Optional[str] = ""

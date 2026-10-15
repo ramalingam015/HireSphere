@@ -26,7 +26,8 @@ def seed_database():
         recruiter_status=RecruiterStatus.APPROVED,
         headline="System Administrator & Compliance Officer",
         bio="Managing talent network integrity and verification.",
-        is_active=True
+        is_active=True,
+        is_email_verified=True
     )
 
     recruiter1 = User(
@@ -39,7 +40,8 @@ def seed_database():
         company="CloudScale Systems",
         location="San Francisco, CA",
         bio="Hiring top distributed systems and backend engineers.",
-        is_active=True
+        is_active=True,
+        is_email_verified=True
     )
 
     recruiter2 = User(
@@ -52,7 +54,8 @@ def seed_database():
         company="NextGen AI",
         location="Austin, TX",
         bio="Early stage stealth startup scaling founding engineering team.",
-        is_active=True
+        is_active=True,
+        is_email_verified=True
     )
 
     candidate1 = User(
@@ -65,7 +68,8 @@ def seed_database():
         location="Seattle, WA",
         skills="Python, React, FastAPI, PostgreSQL, Docker, Git, JavaScript",
         bio="Passionate software engineer excited about backend platforms and distributed systems.",
-        is_active=True
+        is_active=True,
+        is_email_verified=True
     )
 
     candidate2 = User(
@@ -78,7 +82,8 @@ def seed_database():
         location="Boston, MA",
         skills="React, TypeScript, CSS, Node, GraphQL, Figma",
         bio="Front-end and full-stack enthusiast with an eye for UI performance.",
-        is_active=True
+        is_active=True,
+        is_email_verified=True
     )
 
     db.add_all([admin, recruiter1, recruiter2, candidate1, candidate2])
@@ -94,6 +99,7 @@ def seed_database():
         experience_level="Entry to Mid-Level",
         salary_range="$95,000 - $130,000",
         description="We are building hyper-scale microservices and seeking an engineer who loves clean APIs, relational databases, and automated testing.",
+        application_deadline=datetime.utcnow() + timedelta(days=14),
         is_active=True
     )
     db.add(job1)
@@ -119,6 +125,7 @@ def seed_database():
         experience_level="Junior / Mid",
         salary_range="$90,000 - $120,000",
         description="Join our web experience team craft intuitive dashboards, reactive visualizations, and reusable component libraries.",
+        application_deadline=datetime.utcnow() + timedelta(days=30),
         is_active=True
     )
     db.add(job2)

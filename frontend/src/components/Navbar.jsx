@@ -1,5 +1,6 @@
 import React from "react";
 import { useAuth } from "../context/AuthContext";
+import { getApiBase, setApiBase } from "../api/client";
 import { 
   Briefcase, Users, MessageSquare, Shield, User, LogOut, 
   Sparkles, CheckCircle2, Clock, AlertTriangle 
@@ -44,6 +45,21 @@ export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith }) => {
             title="Switch to Admin account"
           >
             🛡️ Admin Portal
+          </button>
+          <button 
+            className="btn-demo" 
+            onClick={() => {
+              const current = getApiBase();
+              const next = window.prompt("Enter your Backend API URL (e.g. https://hiresphere.onrender.com or http://localhost:8000). Leave blank for same-origin / demo fallback:", current || "");
+              if (next !== null) {
+                setApiBase(next);
+                window.location.reload();
+              }
+            }}
+            title="Configure backend server URL for GitHub Pages"
+            style={{ background: "#0369a1", borderColor: "#0284c7" }}
+          >
+            ⚙️ Backend: {getApiBase() ? "Custom API" : "Auto / Demo"}
           </button>
         </div>
       </div>

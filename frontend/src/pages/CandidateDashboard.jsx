@@ -247,6 +247,7 @@ export const CandidateDashboard = ({ onOpenChatWith, activeSubTab = "jobs" }) =>
             <div className="grid-cols-2">
               {jobs.map((job) => {
                 const alreadyApplied = applications.some(a => a.job_id === job.id);
+                const isDeadlinePassed = job.application_deadline ? new Date(job.application_deadline) < new Date() : false;
                 return (
                   <div key={job.id} className="card">
                     <div className="card-header">
@@ -270,6 +271,17 @@ export const CandidateDashboard = ({ onOpenChatWith, activeSubTab = "jobs" }) =>
                       <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
                         <DollarSign size={14} /> {job.salary_range}
                       </span>
+                      {job.application_deadline && (
+                        <span style={{ 
+                          display: "flex", 
+                          alignItems: "center", 
+                          gap: "0.3rem",
+                          color: isDeadlinePassed ? "#dc2626" : "#2563eb",
+                          fontWeight: isDeadlinePassed ? 600 : 500
+                        }}>
+                          <Clock size={14} /> {isDeadlinePassed ? `Deadline Expired (${new Date(job.application_deadline).toLocaleDateString()})` : `Deadline: ${new Date(job.application_deadline).toLocaleDateString()}`}
+                        </span>
+                      )}
                     </div>
 
                     <p style={{ fontSize: "0.85rem", color: "#475569", marginBottom: "1rem", lineHeight: 1.4 }}>
@@ -306,6 +318,10 @@ export const CandidateDashboard = ({ onOpenChatWith, activeSubTab = "jobs" }) =>
                       {alreadyApplied ? (
                         <span className="skill-tag skill-matched">
                           <CheckCircle2 size={13} /> Applied
+                        </span>
+                      ) : isDeadlinePassed ? (
+                        <span className="skill-tag" style={{ background: "#fee2e2", color: "#991b1b" }}>
+                          <XCircle size={13} /> Deadline Closed
                         </span>
                       ) : (
                         <button 

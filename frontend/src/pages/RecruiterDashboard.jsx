@@ -22,6 +22,11 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
   const [newJobLocation, setNewJobLocation] = useState("Remote");
   const [newJobType, setNewJobType] = useState("Full-time");
   const [newJobSalary, setNewJobSalary] = useState("$80,000 - $110,000");
+  const [newJobDeadline, setNewJobDeadline] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    return d.toISOString().slice(0, 16);
+  });
   const [newJobDesc, setNewJobDesc] = useState("");
   const [skillsList, setSkillsList] = useState([
     { skill_name: "Python", is_required: true },
@@ -116,6 +121,7 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
           job_type: newJobType,
           salary_range: newJobSalary,
           description: newJobDesc,
+          application_deadline: newJobDeadline ? new Date(newJobDeadline).toISOString() : null,
           skills: skillsList
         })
       });
@@ -244,6 +250,16 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
                   <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
                     {j.job_type} • {j.location}
                   </div>
+                  {j.application_deadline && (
+                    <div style={{ 
+                      fontSize: "0.72rem", 
+                      color: new Date(j.application_deadline) < new Date() ? "#dc2626" : "#2563eb", 
+                      marginTop: "0.25rem",
+                      fontWeight: 500
+                    }}>
+                      📅 Deadline: {new Date(j.application_deadline).toLocaleDateString()} {new Date(j.application_deadline) < new Date() ? "(Expired)" : ""}
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
@@ -551,6 +567,20 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
                     onChange={(e) => setNewJobSalary(e.target.value)}
                   />
                 </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Application Deadline *</label>
+                <input 
+                  type="datetime-local" 
+                  className="form-input" 
+                  required
+                  value={newJobDeadline}
+                  onChange={(e) => setNewJobDeadline(e.target.value)}
+                />
+                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.2rem", display: "block" }}>
+                  Applications and ATS scans will be blocked once this deadline passes.
+                </span>
               </div>
 
               <div className="form-group">

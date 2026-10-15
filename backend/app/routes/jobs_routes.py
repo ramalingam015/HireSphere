@@ -117,6 +117,7 @@ def create_job(
         experience_level=job_in.experience_level,
         salary_range=job_in.salary_range,
         description=job_in.description,
+        application_deadline=job_in.application_deadline,
         is_active=True
     )
     db.add(new_job)

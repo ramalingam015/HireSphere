@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.orm import Session
@@ -60,6 +61,13 @@ async def pre_analyze_resume(
     if not job:
         raise HTTPException(status_code=404, detail="Job opening not found")
 
+    # Deadline validation
+    if job.application_deadline and datetime.utcnow() > job.application_deadline:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"The application deadline for this job opening passed on {job.application_deadline.strftime('%b %d, %Y at %H:%M UTC')}."
+        )
+
     try:
         resume_text = extract_text_from_pdf(pdf_bytes)
     except Exception as e:
@@ -119,6 +127,13 @@ async def submit_application(
         raise HTTPException(status_code=404, detail="Job opening not found")
     if not job.is_active:
         raise HTTPException(status_code=400, detail="This job opening is no longer accepting applications.")
+
+    # Deadline validation
+    if job.application_deadline and datetime.utcnow() > job.application_deadline:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"The application deadline for this job opening passed on {job.application_deadline.strftime('%b %d, %Y at %H:%M UTC')}."
+        )
 
     # Validate PDF
     if not file.filename.lower().endswith(".pdf"):

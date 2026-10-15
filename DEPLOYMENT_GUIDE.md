@@ -7,6 +7,7 @@ This guide provides end-to-end instructions for deploying HireSphere to producti
 - **Method 2:** [Cloud PaaS Hosting (Render / Railway / Fly.io — Zero Server Management)](#method-2-cloud-paas-deployment-render--railway)
 - **Method 3:** [Ubuntu / Debian Linux Server with Nginx, Systemd & Let's Encrypt SSL](#method-3-traditional-linux-vps-ubuntu--nginx--systemd)
 - **Method 4:** [Campus LAN / Local Windows Server Deployment](#method-4-campus-lan--local-server-deployment)
+- **Method 5:** [GitHub Pages Frontend Deployment (+ Free Backend)](#method-5-github-pages-frontend-deployment)
 
 ---
 
@@ -272,6 +273,49 @@ Students, recruiters, and admins on the same network can open their browser and 
 http://192.168.1.100:8000
 ```
 *(Replace `192.168.1.100` with your server's actual IP address)*
+
+---
+
+## Method 5: GitHub Pages Frontend Deployment
+
+> [!IMPORTANT]
+> **Understanding Static Hosting vs. Full-Stack:**
+> GitHub Pages is a **static web host** (HTML, CSS, JS only). It **cannot run Python/FastAPI or database processes**.
+> However, you can deploy the React frontend on GitHub Pages, and it will:
+> 1. Run seamlessly in **Interactive Demo Mode** (with built-in offline simulation of ATS scoring, applications, and slots) so your repository link works immediately.
+> 2. Connect to any live backend (e.g. deployed on Render, Railway, or your VPS) whenever you configure the Backend URL.
+
+### Automated 1-Click Deployment via GitHub Actions
+
+This repository already includes `.github/workflows/deploy.yml`. Follow these 3 steps:
+
+#### Step 1: Push Repository to GitHub
+Make sure your commit includes the `.github/workflows/deploy.yml` file:
+```bash
+git add .
+git commit -m "Add GitHub Pages automated workflow"
+git push origin main
+```
+
+#### Step 2: Enable GitHub Pages in Your Repository Settings
+1. Go to your GitHub repository in your web browser.
+2. Click **Settings** (tab at the top).
+3. In the left sidebar, click **Pages** (under the "Code and automation" section).
+4. Under **Build and deployment** → **Source**, change from *"Deploy from a branch"* to:
+   👉 **`GitHub Actions`**
+5. Save. That's it!
+
+#### Step 3: View Your Live Site
+1. Click the **Actions** tab at the top of your GitHub repository.
+2. You will see the **Deploy Frontend to GitHub Pages** workflow running.
+3. Once completed (green checkmark), your live URL will appear (e.g., `https://<your-username>.github.io/<repo-name>/`).
+4. Click your link and explore the application!
+
+#### Step 4: (Optional) Connect to a Live Backend Server
+In the live website on GitHub Pages:
+- Look at the top demo bar: click **⚙️ Backend: Auto / Demo**.
+- Enter your live FastAPI backend URL (e.g. `https://hiresphere-api.onrender.com`).
+- The frontend will immediately route all live authentication, ATS scoring, and interview slot bookings to your production server!
 
 ---
 

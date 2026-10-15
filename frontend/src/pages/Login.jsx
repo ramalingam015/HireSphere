@@ -1,13 +1,20 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { Briefcase, Sparkles, AlertCircle } from "lucide-react";
+import { Briefcase, Sparkles, AlertCircle, Mail, CheckCircle2, RefreshCw } from "lucide-react";
 
 export const Login = ({ onSwitchToRegister }) => {
-  const { login, loginAsDemo } = useAuth();
+  const { login, loginAsDemo, verifyEmail, resendVerification } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Unverified email handler state
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [demoCode, setDemoCode] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifySuccessMsg, setVerifySuccessMsg] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -17,11 +24,165 @@ export const Login = ({ onSwitchToRegister }) => {
     try {
       await login(email, password);
     } catch (err) {
-      setError(err.message || "Invalid email or password");
+      const msg = err.message || "Invalid email or password";
+      if (msg.toLowerCase().includes("email not verified")) {
+        setNeedsVerification(true);
+        // Attempt to extract demo code from error message if backend sent one
+        const match = msg.match(/Demo code:\s*(\d{6})/i);
+        if (match && match[1]) {
+          setDemoCode(match[1]);
+          setVerificationCode(match[1]);
+        }
+        setError(msg);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    setError("");
+    setVerifyLoading(true);
+
+    try {
+      await verifyEmail(email, verificationCode.trim());
+      setVerifySuccessMsg("Email verified successfully! Logging you in...");
+    } catch (err) {
+      setError(err.message || "Invalid verification code");
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setError("");
+    try {
+      const res = await resendVerification(email);
+      if (res && res.verification_code) {
+        setDemoCode(res.verification_code);
+        setVerificationCode(res.verification_code);
+      }
+      setVerifySuccessMsg("A new verification code has been dispatched!");
+      setTimeout(() => setVerifySuccessMsg(""), 4000);
+    } catch (err) {
+      setError(err.message || "Failed to resend verification code");
+    }
+  };
+
+  if (needsVerification) {
+    return (
+      <div style={{ maxWidth: "440px", margin: "2rem auto" }}>
+        <div className="card">
+          <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
+            <div style={{
+              display: "inline-flex", padding: "0.75rem", borderRadius: "12px",
+              background: "#eff6ff", color: "var(--primary)", marginBottom: "0.75rem"
+            }}>
+              <Mail size={30} />
+            </div>
+            <h2 style={{ fontSize: "1.35rem", fontWeight: 700 }}>Email Verification Required</h2>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+              Please verify <strong style={{ color: "var(--text-main)" }}>{email}</strong> before signing in.
+            </p>
+          </div>
+
+          {error && (
+            <div style={{
+              background: "#fee2e2", border: "1px solid #fecaca", color: "#991b1b",
+              padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem",
+              fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.4rem"
+            }}>
+              <AlertCircle size={16} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {verifySuccessMsg && (
+            <div style={{
+              background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534",
+              padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem",
+              fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.4rem"
+            }}>
+              <CheckCircle2 size={16} />
+              <span>{verifySuccessMsg}</span>
+            </div>
+          )}
+
+          {demoCode && (
+            <div style={{
+              background: "#f0fdf4", border: "1px dashed #86efac", borderRadius: "8px",
+              padding: "0.75rem", marginBottom: "1.25rem", fontSize: "0.82rem", color: "#166534"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>🧪 <strong>Demo Code:</strong> <code style={{ fontSize: "1.05rem", fontWeight: 700, letterSpacing: "2px" }}>{demoCode}</code></span>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: "0.75rem", padding: "0.2rem 0.5rem" }}
+                  onClick={() => setVerificationCode(demoCode)}
+                >
+                  Use Code
+                </button>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleVerify}>
+            <div className="form-group">
+              <label className="form-label" style={{ textAlign: "center", display: "block" }}>
+                Enter 6-Digit Code
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                required
+                maxLength={6}
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="123456"
+                style={{
+                  textAlign: "center",
+                  fontSize: "1.4rem",
+                  fontWeight: 700,
+                  letterSpacing: "6px",
+                  padding: "0.6rem"
+                }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ width: "100%", marginTop: "0.5rem" }}
+              disabled={verifyLoading || verificationCode.length !== 6}
+            >
+              {verifyLoading ? "Verifying..." : "Verify & Sign In"}
+            </button>
+          </form>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1.25rem", fontSize: "0.82rem" }}>
+            <button
+              type="button"
+              onClick={handleResend}
+              style={{ color: "var(--primary)", display: "flex", alignItems: "center", gap: "0.3rem", fontWeight: 500 }}
+            >
+              <RefreshCw size={13} /> Resend Code
+            </button>
+            <button
+              type="button"
+              onClick={() => { setNeedsVerification(false); setError(""); }}
+              style={{ color: "var(--text-muted)" }}
+            >
+              Back to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: "440px", margin: "2rem auto" }}>

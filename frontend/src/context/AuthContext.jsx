@@ -45,10 +45,30 @@ export const AuthProvider = ({ children }) => {
       method: "POST",
       body: JSON.stringify(userData),
     });
+    if (data.user?.is_email_verified) {
+      setAuthToken(data.access_token);
+      setTokenState(data.access_token);
+      setUser(data.user);
+    }
+    return data;
+  };
+
+  const verifyEmail = async (email, code) => {
+    const data = await apiRequest("/api/auth/verify-email", {
+      method: "POST",
+      body: JSON.stringify({ email, code }),
+    });
     setAuthToken(data.access_token);
     setTokenState(data.access_token);
     setUser(data.user);
-    return data.user;
+    return data;
+  };
+
+  const resendVerification = async (email) => {
+    return await apiRequest("/api/auth/resend-verification", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
   };
 
   const logout = () => {
@@ -77,6 +97,8 @@ export const AuthProvider = ({ children }) => {
         loading,
         login,
         register,
+        verifyEmail,
+        resendVerification,
         logout,
         loginAsDemo,
         refreshUser: fetchCurrentUser,
