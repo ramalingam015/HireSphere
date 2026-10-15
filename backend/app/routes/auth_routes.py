@@ -11,6 +11,7 @@ from app.schemas import (
     EmailVerificationRequest, ResendVerificationRequest, EmailVerificationResponse
 )
 from app.auth import get_password_hash, verify_password, create_access_token, get_current_user
+from app.email_service import send_verification_email
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -58,15 +59,21 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
-    # In development/demo, this code is logged to server console
-    print(f"\n[EMAIL DISPATCH] To: {new_user.email} | 6-Digit Verification Code: {verification_code}\n")
+    # Send verification email via SMTP (or log to console if SMTP is not configured)
+    email_sent = send_verification_email(new_user.email, verification_code, new_user.full_name)
 
     token = create_access_token({"sub": str(new_user.id), "role": new_user.role})
     return {
         "access_token": token,
         "token_type": "bearer",
         "user": new_user,
-        "message": f"Account created! A 6-digit verification code has been dispatched to {new_user.email}."
+        "email_sent": email_sent,
+        "dev_code": None if email_sent else verification_code,
+        "message": (
+            f"Account created! A 6-digit verification code has been emailed to {new_user.email}."
+            if email_sent else
+            f"Account created! (Real email requires SMTP configured on server. Code logged to server console)."
+        )
     }
 
 @router.post("/verify-email", response_model=EmailVerificationResponse)
@@ -125,9 +132,15 @@ def resend_verification(req: ResendVerificationRequest, db: Session = Depends(ge
     user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
     db.commit()
 
-    print(f"\n[EMAIL RESEND] To: {user.email} | New 6-Digit Code: {code}\n")
+    email_sent = send_verification_email(user.email, code, user.full_name)
     return {
-        "message": f"A new 6-digit verification code has been dispatched to {user.email}."
+        "email_sent": email_sent,
+        "dev_code": None if email_sent else code,
+        "message": (
+            f"A fresh 6-digit verification code has been dispatched to {user.email}."
+            if email_sent else
+            f"New verification code generated. (SMTP not configured on server yet)."
+        )
     }
 
 @router.post("/login", response_model=Token)
@@ -150,10 +163,16 @@ def login(login_in: UserLogin, db: Session = Depends(get_db)):
             user.email_verification_code = str(random.randint(100000, 999999))
             user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
             db.commit()
-        print(f"\n[EMAIL DISPATCH] To: {user.email} | Verification Code: {user.email_verification_code}\n")
+        
+        email_sent = send_verification_email(user.email, user.email_verification_code, user.full_name)
+        msg = (
+            f"Email not verified. A 6-digit verification code has been sent to {user.email}. Please verify your email before logging in."
+            if email_sent else
+            f"Email not verified. A 6-digit verification code was dispatched to {user.email}. (Dev Code: {user.email_verification_code})"
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Email not verified. A 6-digit verification code has been sent to {user.email}. Please verify your email before logging in."
+            detail=msg
         )
 
     token = create_access_token({"sub": str(user.id), "role": user.role})

@@ -20,6 +20,8 @@ export const Register = ({ onSwitchToLogin }) => {
   const [verificationStep, setVerificationStep] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
   const [enteredCode, setEnteredCode] = useState("");
+  const [emailSent, setEmailSent] = useState(false);
+  const [devCode, setDevCode] = useState("");
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifySuccessMsg, setVerifySuccessMsg] = useState("");
   const [verifyError, setVerifyError] = useState("");
@@ -53,6 +55,8 @@ export const Register = ({ onSwitchToLogin }) => {
       if (res && res.user && !res.user.is_email_verified) {
         setPendingEmail(email);
         setEnteredCode("");
+        setEmailSent(res.email_sent === true);
+        setDevCode(res.dev_code || "");
         setVerificationStep(true);
       }
     } catch (err) {
@@ -80,8 +84,12 @@ export const Register = ({ onSwitchToLogin }) => {
   const handleResend = async () => {
     setVerifyError("");
     try {
-      await resendVerification(pendingEmail);
-      setVerifySuccessMsg("A new 6-digit verification code has been dispatched to your email!");
+      const res = await resendVerification(pendingEmail);
+      if (res) {
+        setEmailSent(res.email_sent === true);
+        if (res.dev_code) setDevCode(res.dev_code);
+        setVerifySuccessMsg(res.message || "A new 6-digit verification code has been dispatched!");
+      }
       setTimeout(() => setVerifySuccessMsg(""), 5000);
     } catch (err) {
       setVerifyError(err.message || "Failed to resend code");
@@ -102,10 +110,38 @@ export const Register = ({ onSwitchToLogin }) => {
             </div>
             <h2 style={{ fontSize: "1.35rem", fontWeight: 700 }}>Verify Your Email</h2>
             <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-              We sent a 6-digit verification code to<br />
-              <strong style={{ color: "var(--text-main)" }}>{pendingEmail}</strong>
+              {emailSent ? (
+                <span>A 6-digit confirmation code was emailed to<br /><strong style={{ color: "var(--text-main)" }}>{pendingEmail}</strong></span>
+              ) : (
+                <span>Verification code generated for<br /><strong style={{ color: "var(--text-main)" }}>{pendingEmail}</strong></span>
+              )}
             </p>
           </div>
+
+          {!emailSent && (
+            <div style={{
+              background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e",
+              padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.82rem"
+            }}>
+              <strong>ℹ️ Real Email Delivery Notice:</strong>
+              <p style={{ margin: "0.25rem 0" }}>
+                To send emails directly to inboxes on Render, set <code>SMTP_USER</code> and <code>SMTP_PASSWORD</code> in your Render Environment settings.
+              </p>
+              {devCode && (
+                <div style={{ marginTop: "0.4rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>Test Code (SMTP unconfigured): <strong style={{ letterSpacing: "2px", fontSize: "1rem" }}>{devCode}</strong></span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: "0.72rem", padding: "0.15rem 0.45rem" }}
+                    onClick={() => setEnteredCode(devCode)}
+                  >
+                    Auto-fill
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {verifyError && (
             <div style={{

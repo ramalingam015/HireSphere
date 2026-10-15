@@ -21,10 +21,36 @@ Configure these environment variables in your server's `.env` file or cloud dash
 | `DATABASE_URL` | `sqlite:///backend/recruitment.db` | Database connection string. Use `postgresql://user:pass@host:5432/dbname` for production PostgreSQL. |
 | `PORT` | `8000` | Port on which the FastAPI application listens. |
 | `OLLAMA_URL` | `http://localhost:11434` | Endpoint for Ollama AI inference (optional; system falls back to built-in NLP heuristics if unavailable). |
-| `OLLAMA_MODEL` | `qwen2.5:3b` | Ollama model name to use for AI job parsing. |
 | `VITE_API_BASE` | `""` (Empty string) | API root URL for frontend. Keep empty for same-origin deployment. |
+| `ADMIN_REGISTRATION_KEY` | `CS455-ADMIN-2026` | Passcode required when registering an Administrator account. |
+| `SMTP_HOST` | `smtp.gmail.com` | SMTP email server host. |
+| `SMTP_PORT` | `587` | SMTP email server port (587 for TLS, 465 for SSL). |
+| `SMTP_USER` | `""` | Sender email address (e.g. `your-email@gmail.com`). Required for real email delivery. |
+| `SMTP_PASSWORD` | `""` | Sender SMTP password or Google 16-character App Password. Required for real email delivery. |
+| `SMTP_FROM_EMAIL` | Same as `SMTP_USER` | "From" address shown on verification emails. |
 
 ---
+
+### 📧 Setting Up Real Email OTP Delivery (Gmail / Brevo / SendGrid)
+
+To have HireSphere send real 6-digit confirmation codes directly to user email inboxes:
+
+1. **Using Gmail (Free & Fast)**:
+   - Go to your **Google Account** -> **Security** -> Enable **2-Step Verification** (if not already enabled).
+   - Search for **App passwords** (or go to `myaccount.google.com/apppasswords`).
+   - Create an app name like `HireSphere` and click **Create**.
+   - Copy the generated **16-character password** (e.g. `abcd efgh ijkl mnop`).
+   - In your Render Web Service dashboard, go to the **Environment** tab and add:
+     - `SMTP_HOST`: `smtp.gmail.com`
+     - `SMTP_PORT`: `587`
+     - `SMTP_USER`: `your_email@gmail.com`
+     - `SMTP_PASSWORD`: `your-16-character-app-password`
+     - `SMTP_FROM_EMAIL`: `your_email@gmail.com`
+   - Click **Save Changes**. Render will automatically restart your app with real email delivery enabled!
+
+2. **Using Brevo / SendGrid / Mailgun**:
+   - Set `SMTP_HOST` to your provider's relay (e.g. `smtp-relay.brevo.com`).
+   - Set `SMTP_USER` and `SMTP_PASSWORD` to your API key / SMTP credentials.
 
 ## Method 1: Docker & Docker Compose (Recommended)
 
