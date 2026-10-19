@@ -3,7 +3,7 @@ __pycache__/
 *$py.class
 *.db
 *.sqlite3
-
+docker-compose.dev.yml
 node_modules/
 dist/
 .env
