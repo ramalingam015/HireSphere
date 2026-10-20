@@ -26,7 +26,7 @@ export const ATSModal = ({ job, onClose, onAppliedSuccess }) => {
 
     // FR-DAT-02: Size <= 5 MB
     if (selected.size > 5 * 1024 * 1024) {
-      setErrorMsg(`FR-DAT-02 Violation: Resume exceeds 5 MB limit (${(selected.size / (1024 * 1024)).toFixed(2)} MB).`);
+      setErrorMsg(`Resume connot exceeds 5 MB  (${(selected.size / (1024 * 1024)).toFixed(2)} MB).`);
       setFile(null);
       return;
     }
