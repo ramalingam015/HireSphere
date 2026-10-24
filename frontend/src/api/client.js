@@ -1,4 +1,5 @@
 import { MOCK_USERS, MOCK_JOBS, MOCK_SLOTS, MOCK_POSTS, MOCK_APPLICATIONS } from "./mockData";
+import { authenticateMockLogin, shouldUseMockFallback } from "./mockAuth";
 
 export const getApiBase = () => {
   const saved = localStorage.getItem("hiresphere_api_base");
@@ -80,7 +81,11 @@ export const apiRequest = async (endpoint, options = {}) => {
 
     return data;
   } catch (err) {
-    // If backend is unreachable (e.g. static hosting on GitHub Pages), fallback to mock engine
+    // Only network / unreachable-backend failures may use the offline mock engine.
+    // Auth failures (401) and other HTTP errors from a live API must surface to the UI.
+    if (!shouldUseMockFallback(err)) {
+      throw err;
+    }
     console.warn(`[HireSphere API] Fetch to "${url}" failed. Using mock fallback engine.`, err.message);
     return handleMockFallback(endpoint, options);
   }
@@ -108,6 +113,7 @@ function handleMockFallback(endpoint, options) {
     const newUser = {
       id: Date.now(),
       email: body.email,
+      password: body.password,
       full_name: body.full_name,
       role: body.role,
       recruiter_status: body.role === "recruiter" ? "pending" : "approved",
@@ -158,7 +164,7 @@ function handleMockFallback(endpoint, options) {
   if (endpoint.startsWith("/api/auth/login")) {
     let body = {};
     try { body = JSON.parse(options.body); } catch (_) {}
-    const user = mockUsers.find(u => u.email === body.email) || mockUsers[0];
+    const user = authenticateMockLogin(mockUsers, body.email, body.password);
     localStorage.setItem("hiresphere_demo_role", user.role);
     setAuthToken("demo-mock-jwt-token");
     return { access_token: "demo-mock-jwt-token", token_type: "bearer", user };

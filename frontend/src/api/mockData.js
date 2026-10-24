@@ -3,6 +3,7 @@ export const MOCK_USERS = [
   {
     id: 1,
     email: "student@university.edu",
+    password: "student123",
     full_name: "Alex Rivera",
     role: "candidate",
     recruiter_status: "approved",
@@ -17,6 +18,7 @@ export const MOCK_USERS = [
   {
     id: 2,
     email: "recruiter@techcorp.com",
+    password: "recruiter123",
     full_name: "Elena Rostova",
     role: "recruiter",
     recruiter_status: "approved",
@@ -31,6 +33,7 @@ export const MOCK_USERS = [
   {
     id: 3,
     email: "pending@startup.io",
+    password: "pending123",
     full_name: "Marcus Vance",
     role: "recruiter",
     recruiter_status: "pending",
@@ -45,6 +48,7 @@ export const MOCK_USERS = [
   {
     id: 4,
     email: "admin@recruit.com",
+    password: "admin123",
     full_name: "Platform Administrator",
     role: "admin",
     recruiter_status: "approved",
