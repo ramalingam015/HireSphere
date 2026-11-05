@@ -9,7 +9,7 @@ from app.models import User, UserRole, RecruiterStatus
 from app.schemas import (
     UserCreate, UserLogin, UserOut, UserProfileUpdate, Token,
     EmailVerificationRequest, ResendVerificationRequest, EmailVerificationResponse,
-    TestEmailRequest, EmailConfigRequest
+    TestEmailRequest, EmailConfigRequest, DemoLoginRequest
 )
 from app.auth import get_password_hash, verify_password, create_access_token, get_current_user
 from app.email_service import send_verification_email, get_email_service_status, update_email_configuration
@@ -244,6 +244,113 @@ def login(login_in: UserLogin, db: Session = Depends(get_db)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail=msg
         )
+
+    token = create_access_token({"sub": str(user.id), "role": user.role})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user
+    }
+
+@router.post("/demo-login", response_model=Token)
+def demo_login(req: DemoLoginRequest, db: Session = Depends(get_db)):
+    """
+    Auto-provisions and immediately authenticates demo accounts for CS455 role switching.
+    Guarantees that demo buttons in the Quick Switcher bar NEVER fail with 401 Unauthorized,
+    even after a database wipe or fresh deployment.
+    """
+    role = (req.role or "candidate").strip().lower()
+
+    demo_map = {
+        "admin": {
+            "email": "admin@recruit.com",
+            "password": "admin123",
+            "full_name": "Platform Administrator",
+            "role": UserRole.ADMIN,
+            "status": RecruiterStatus.APPROVED,
+            "company": "HireSphere",
+            "headline": "System Administrator & Compliance Officer",
+            "bio": "Managing talent network integrity and verification.",
+            "location": "Global",
+            "skills": "Administration, Compliance, User Moderation"
+        },
+        "recruiter": {
+            "email": "recruiter@techcorp.com",
+            "password": "recruiter123",
+            "full_name": "Elena Rostova",
+            "role": UserRole.RECRUITER,
+            "status": RecruiterStatus.APPROVED,
+            "company": "CloudScale Systems",
+            "headline": "Lead Technical Recruiter at CloudScale Systems",
+            "bio": "Hiring top distributed systems and backend engineers.",
+            "location": "San Francisco, CA",
+            "skills": "Technical Recruiting, ATS, Interview Scheduling"
+        },
+        "pending_recruiter": {
+            "email": "pending@startup.io",
+            "password": "pending123",
+            "full_name": "Marcus Vance",
+            "role": UserRole.RECRUITER,
+            "status": RecruiterStatus.PENDING,
+            "company": "NextGen AI",
+            "headline": "Founder & Talent Lead at NextGen AI",
+            "bio": "Early stage stealth startup scaling founding engineering team.",
+            "location": "Austin, TX",
+            "skills": "Startups, AI Engineering, Executive Search"
+        },
+        "candidate": {
+            "email": "student@university.edu",
+            "password": "student123",
+            "full_name": "Alex Rivera",
+            "role": UserRole.CANDIDATE,
+            "status": RecruiterStatus.APPROVED,
+            "company": "",
+            "headline": "Computer Science Graduate & Full Stack Developer",
+            "bio": "Recent CS graduate passionate about modern web apps, distributed systems, and React.",
+            "location": "Boston, MA",
+            "skills": "Python, React, TypeScript, FastAPI, PostgreSQL"
+        }
+    }
+
+    target = demo_map.get(role, demo_map["candidate"])
+    user = db.query(User).filter(User.email == target["email"]).first()
+
+    if not user:
+        user = User(
+            email=target["email"],
+            hashed_password=get_password_hash(target["password"]),
+            full_name=target["full_name"],
+            role=target["role"],
+            recruiter_status=target["status"],
+            company=target["company"],
+            headline=target["headline"],
+            bio=target["bio"],
+            location=target["location"],
+            skills=target["skills"],
+            is_active=True,
+            is_email_verified=True
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        # Guarantee demo accounts are active, email-verified, and have expected status
+        updated = False
+        if not user.is_active:
+            user.is_active = True
+            updated = True
+        if not user.is_email_verified:
+            user.is_email_verified = True
+            updated = True
+        if role == "pending_recruiter" and user.recruiter_status != RecruiterStatus.PENDING:
+            user.recruiter_status = RecruiterStatus.PENDING
+            updated = True
+        elif role == "recruiter" and user.recruiter_status != RecruiterStatus.APPROVED:
+            user.recruiter_status = RecruiterStatus.APPROVED
+            updated = True
+        if updated:
+            db.commit()
+            db.refresh(user)
 
     token = create_access_token({"sub": str(user.id), "role": user.role})
     return {

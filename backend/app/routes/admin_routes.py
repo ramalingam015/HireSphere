@@ -218,7 +218,7 @@ def reset_database_endpoint(
     db.query(User).delete()
     db.commit()
 
-    # Re-create clean default Admin account
+    # Re-create clean default Admin accounts and demo users for immediate testing
     clean_admin = User(
         email="admin@hiresphere.com",
         hashed_password=get_password_hash("Admin@123"),
@@ -227,7 +227,47 @@ def reset_database_endpoint(
         is_active=True,
         is_email_verified=True
     )
-    db.add(clean_admin)
+    demo_admin = User(
+        email="admin@recruit.com",
+        hashed_password=get_password_hash("admin123"),
+        full_name="Platform Administrator",
+        role=UserRole.ADMIN,
+        recruiter_status=RecruiterStatus.APPROVED,
+        company="HireSphere",
+        is_active=True,
+        is_email_verified=True
+    )
+    demo_recruiter = User(
+        email="recruiter@techcorp.com",
+        hashed_password=get_password_hash("recruiter123"),
+        full_name="Elena Rostova",
+        role=UserRole.RECRUITER,
+        recruiter_status=RecruiterStatus.APPROVED,
+        company="CloudScale Systems",
+        is_active=True,
+        is_email_verified=True
+    )
+    demo_pending = User(
+        email="pending@startup.io",
+        hashed_password=get_password_hash("pending123"),
+        full_name="Marcus Vance",
+        role=UserRole.RECRUITER,
+        recruiter_status=RecruiterStatus.PENDING,
+        company="NextGen AI",
+        is_active=True,
+        is_email_verified=True
+    )
+    demo_candidate = User(
+        email="student@university.edu",
+        hashed_password=get_password_hash("student123"),
+        full_name="Alex Rivera",
+        role=UserRole.CANDIDATE,
+        recruiter_status=RecruiterStatus.APPROVED,
+        company="",
+        is_active=True,
+        is_email_verified=True
+    )
+    db.add_all([clean_admin, demo_admin, demo_recruiter, demo_pending, demo_candidate])
     db.commit()
 
     # Clean uploaded resume files

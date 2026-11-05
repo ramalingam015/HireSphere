@@ -26,6 +26,9 @@ class UserLogin(BaseModel):
     email: str
     password: str
 
+class DemoLoginRequest(BaseModel):
+    role: str = "candidate"
+
 class EmailVerificationRequest(BaseModel):
     email: str
     code: str

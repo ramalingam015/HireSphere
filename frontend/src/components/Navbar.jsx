@@ -48,14 +48,6 @@ export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenEmailC
           </button>
           <button 
             className="btn-demo" 
-            onClick={() => onOpenEmailConfig && onOpenEmailConfig()}
-            title="Configure real email OTP delivery (Brevo / Gmail)"
-            style={{ background: "#059669", borderColor: "#10b981" }}
-          >
-            ✉️ Email Setup
-          </button>
-          <button 
-            className="btn-demo" 
             onClick={() => {
               const current = getApiBase();
               const next = window.prompt("Enter your Backend API URL (e.g. https://hiresphere.onrender.com or http://localhost:8000). Leave blank for same-origin / demo fallback:", current || "");

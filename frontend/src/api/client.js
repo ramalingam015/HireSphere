@@ -197,6 +197,26 @@ function handleMockFallback(endpoint, options) {
     return { access_token: "demo-mock-jwt-token", token_type: "bearer", user };
   }
 
+  // Auth demo-login
+  if (endpoint.startsWith("/api/auth/demo-login")) {
+    let body = {};
+    try { body = JSON.parse(options.body); } catch (_) {}
+    const role = (body.role || "candidate").toLowerCase();
+    let user;
+    if (role === "admin") {
+      user = mockUsers.find(u => u.role === "admin") || mockUsers[2];
+    } else if (role === "pending_recruiter") {
+      user = mockUsers.find(u => u.role === "recruiter" && u.recruiter_status === "pending") || mockUsers[1];
+    } else if (role === "recruiter") {
+      user = mockUsers.find(u => u.role === "recruiter" && u.recruiter_status === "approved") || mockUsers[1];
+    } else {
+      user = mockUsers.find(u => u.role === "candidate") || mockUsers[0];
+    }
+    localStorage.setItem("hiresphere_demo_role", user.role);
+    setAuthToken("demo-mock-jwt-token");
+    return { access_token: "demo-mock-jwt-token", token_type: "bearer", user };
+  }
+
   // Jobs
   if (endpoint === "/api/jobs" && method === "POST") {
     let body = {};

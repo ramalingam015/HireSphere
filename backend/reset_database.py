@@ -43,7 +43,7 @@ def reset_all_data():
         db.commit()
         print("  ✓ All database records successfully wiped.")
 
-        print("[2/3] Seeding clean default administrator account...")
+        print("[2/3] Seeding clean default administrator and demo accounts...")
         clean_admin = User(
             email="admin@hiresphere.com",
             hashed_password=get_password_hash("Admin@123"),
@@ -52,9 +52,50 @@ def reset_all_data():
             is_active=True,
             is_email_verified=True
         )
-        db.add(clean_admin)
+        demo_admin = User(
+            email="admin@recruit.com",
+            hashed_password=get_password_hash("admin123"),
+            full_name="Platform Administrator",
+            role=UserRole.ADMIN,
+            recruiter_status=RecruiterStatus.APPROVED,
+            company="HireSphere",
+            is_active=True,
+            is_email_verified=True
+        )
+        demo_recruiter = User(
+            email="recruiter@techcorp.com",
+            hashed_password=get_password_hash("recruiter123"),
+            full_name="Elena Rostova",
+            role=UserRole.RECRUITER,
+            recruiter_status=RecruiterStatus.APPROVED,
+            company="CloudScale Systems",
+            is_active=True,
+            is_email_verified=True
+        )
+        demo_pending = User(
+            email="pending@startup.io",
+            hashed_password=get_password_hash("pending123"),
+            full_name="Marcus Vance",
+            role=UserRole.RECRUITER,
+            recruiter_status=RecruiterStatus.PENDING,
+            company="NextGen AI",
+            is_active=True,
+            is_email_verified=True
+        )
+        demo_candidate = User(
+            email="student@university.edu",
+            hashed_password=get_password_hash("student123"),
+            full_name="Alex Rivera",
+            role=UserRole.CANDIDATE,
+            recruiter_status=RecruiterStatus.APPROVED,
+            company="",
+            is_active=True,
+            is_email_verified=True
+        )
+        db.add_all([clean_admin, demo_admin, demo_recruiter, demo_pending, demo_candidate])
         db.commit()
         print("  ✓ Admin seeded: admin@hiresphere.com (Password: Admin@123)")
+        print("  ✓ Demo accounts seeded for Quick Switcher (Alex Rivera, Elena Rostova, Marcus Vance, Admin Portal)")
 
         print("[3/3] Clearing uploaded resume files...")
         cleaned_files = 0
