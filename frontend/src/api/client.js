@@ -154,6 +154,27 @@ function handleMockFallback(endpoint, options) {
     };
   }
 
+  // Auth diagnostics
+  if (endpoint.startsWith("/api/auth/email-diagnostics")) {
+    return {
+      configured: false,
+      provider: "Mock Mode (Static Hosting)",
+      smtp_host: "None",
+      smtp_port: 587,
+      smtp_user: "",
+      from_email: "noreply@hiresphere.com",
+      from_name: "HireSphere Recruitment",
+      using_api: false
+    };
+  }
+  if (endpoint.startsWith("/api/auth/test-email")) {
+    return {
+      success: false,
+      detail: "Static mock mode active. Real email delivery requires the backend running on Render with SMTP credentials.",
+      test_code: "123456"
+    };
+  }
+
   // Auth login
   if (endpoint.startsWith("/api/auth/login")) {
     let body = {};

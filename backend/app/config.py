@@ -24,11 +24,18 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 # Maximum resume upload size in bytes (5 MB as per FR-DAT-02)
 MAX_RESUME_SIZE_BYTES = 5 * 1024 * 1024
 
-# SMTP Email Dispatcher Settings
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USER or "noreply@hiresphere.com")
-SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "HireSphere Recruitment")
+# SMTP & Email Dispatcher Settings
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+try:
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587").strip())
+except Exception:
+    SMTP_PORT = 587
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "").strip() or SMTP_USER or "noreply@hiresphere.com"
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "HireSphere Recruitment").strip()
+
+# Direct API Keys (alternative to SMTP for maximum reliability)
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
 

@@ -33,6 +33,9 @@ class EmailVerificationRequest(BaseModel):
 class ResendVerificationRequest(BaseModel):
     email: str
 
+class TestEmailRequest(BaseModel):
+    email: str
+
 class EmailVerificationResponse(BaseModel):
     message: str
     is_verified: bool

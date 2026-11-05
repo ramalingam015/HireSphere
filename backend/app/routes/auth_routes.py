@@ -8,10 +8,11 @@ from app.config import ADMIN_REGISTRATION_KEY
 from app.models import User, UserRole, RecruiterStatus
 from app.schemas import (
     UserCreate, UserLogin, UserOut, UserProfileUpdate, Token,
-    EmailVerificationRequest, ResendVerificationRequest, EmailVerificationResponse
+    EmailVerificationRequest, ResendVerificationRequest, EmailVerificationResponse,
+    TestEmailRequest
 )
 from app.auth import get_password_hash, verify_password, create_access_token, get_current_user
-from app.email_service import send_verification_email
+from app.email_service import send_verification_email, get_email_service_status
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -59,8 +60,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
-    # Send verification email via SMTP (or log to console if SMTP is not configured)
-    email_sent = send_verification_email(new_user.email, verification_code, new_user.full_name)
+    # Send verification email via SMTP or direct API
+    email_sent, email_detail = send_verification_email(new_user.email, verification_code, new_user.full_name)
 
     token = create_access_token({"sub": str(new_user.id), "role": new_user.role})
     return {
@@ -68,11 +69,12 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
         "token_type": "bearer",
         "user": new_user,
         "email_sent": email_sent,
+        "email_detail": email_detail,
         "dev_code": None if email_sent else verification_code,
         "message": (
             f"Account created! A 6-digit verification code has been emailed to {new_user.email}."
             if email_sent else
-            f"Account created! (Real email requires SMTP configured on server. Code logged to server console)."
+            f"Account created. {email_detail}"
         )
     }
 
@@ -132,15 +134,37 @@ def resend_verification(req: ResendVerificationRequest, db: Session = Depends(ge
     user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
     db.commit()
 
-    email_sent = send_verification_email(user.email, code, user.full_name)
+    email_sent, email_detail = send_verification_email(user.email, code, user.full_name)
     return {
         "email_sent": email_sent,
+        "email_detail": email_detail,
         "dev_code": None if email_sent else code,
         "message": (
             f"A fresh 6-digit verification code has been dispatched to {user.email}."
             if email_sent else
-            f"New verification code generated. (SMTP not configured on server yet)."
+            f"{email_detail}"
         )
+    }
+
+@router.get("/email-diagnostics")
+def email_diagnostics():
+    """
+    Returns diagnostic details about server email configuration without leaking secret keys.
+    """
+    return get_email_service_status()
+
+@router.post("/test-email")
+def test_email(req: TestEmailRequest):
+    """
+    Test real email delivery to an address and receive the exact server response or error.
+    """
+    test_code = str(random.randint(100000, 999999))
+    sent, detail = send_verification_email(req.email.strip(), test_code, "HireSphere Tester")
+    return {
+        "success": sent,
+        "recipient": req.email.strip(),
+        "detail": detail,
+        "test_code": test_code if not sent else None
     }
 
 @router.post("/login", response_model=Token)
@@ -164,11 +188,11 @@ def login(login_in: UserLogin, db: Session = Depends(get_db)):
             user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
             db.commit()
         
-        email_sent = send_verification_email(user.email, user.email_verification_code, user.full_name)
+        email_sent, email_detail = send_verification_email(user.email, user.email_verification_code, user.full_name)
         msg = (
-            f"Email not verified. A 6-digit verification code has been sent to {user.email}. Please verify your email before logging in."
+            f"Email not verified. A 6-digit verification code has been emailed to {user.email}. Please verify your email before logging in."
             if email_sent else
-            f"Email not verified. A 6-digit verification code was dispatched to {user.email}. (Dev Code: {user.email_verification_code})"
+            f"Email not verified. ({email_detail}). Dev Code: {user.email_verification_code}"
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
