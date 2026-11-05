@@ -281,3 +281,7 @@ class EmailConfigRequest(BaseModel):
     from_email: Optional[str] = None
     test_recipient: Optional[str] = None
 
+class ResetDatabaseRequest(BaseModel):
+    admin_secret_key: str
+
+

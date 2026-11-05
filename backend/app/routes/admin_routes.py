@@ -4,11 +4,12 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import (
-    User, UserRole, RecruiterStatus, Job, Application, InterviewSlot,
-    Post, PostComment, AuditLog
+    User, UserRole, RecruiterStatus, Job, JobSkill, Application, ApplicationStatusHistory,
+    InterviewSlot, Connection, Message, Post, PostLike, PostComment, AuditLog
 )
-from app.schemas import UserOut, JobOut, ApplicationOut, RecruiterActionRequest, PostOut
-from app.auth import require_admin
+from app.schemas import UserOut, JobOut, ApplicationOut, RecruiterActionRequest, PostOut, ResetDatabaseRequest
+from app.auth import require_admin, get_password_hash
+import app.config as config
 
 router = APIRouter(prefix="/api/admin", tags=["Administration"])
 
@@ -185,3 +186,61 @@ def moderate_post(
 
     db.commit()
     return {"message": f"Post moderation action '{action}' executed."}
+
+@router.post("/reset-database")
+def reset_database_endpoint(
+    req: ResetDatabaseRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Wipes all platform data (users, jobs, applications, interviews, messages, posts, resumes)
+    and re-initializes a clean fresh admin account.
+    Protected by ADMIN_REGISTRATION_KEY.
+    """
+    if req.admin_secret_key.strip() != config.ADMIN_REGISTRATION_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid admin secret key. Access denied."
+        )
+
+    # Delete records in foreign key safe order
+    db.query(AuditLog).delete()
+    db.query(PostComment).delete()
+    db.query(PostLike).delete()
+    db.query(Post).delete()
+    db.query(Message).delete()
+    db.query(Connection).delete()
+    db.query(InterviewSlot).delete()
+    db.query(ApplicationStatusHistory).delete()
+    db.query(Application).delete()
+    db.query(JobSkill).delete()
+    db.query(Job).delete()
+    db.query(User).delete()
+    db.commit()
+
+    # Re-create clean default Admin account
+    clean_admin = User(
+        email="admin@hiresphere.com",
+        hashed_password=get_password_hash("Admin@123"),
+        full_name="Platform Administrator",
+        role=UserRole.ADMIN,
+        is_active=True,
+        is_email_verified=True
+    )
+    db.add(clean_admin)
+    db.commit()
+
+    # Clean uploaded resume files
+    try:
+        if config.UPLOAD_DIR.exists():
+            for f in config.UPLOAD_DIR.iterdir():
+                if f.is_file():
+                    f.unlink()
+    except Exception as e:
+        print(f"[RESET DB] Warning cleaning resumes: {e}")
+
+    return {
+        "success": True,
+        "message": "Platform wiped completely! All user accounts, passwords, jobs, applications, and uploaded files have been deleted. Default admin created: admin@hiresphere.com / Admin@123"
+    }
+

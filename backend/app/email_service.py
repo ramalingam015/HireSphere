@@ -229,7 +229,14 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                 "Authorization": f"Bearer {resend_key}",
                 "Content-Type": "application/json"
             }
-            from_resend = sender_email if "@" in sender_email and not sender_email.endswith("hiresphere.com") else "onboarding@resend.dev"
+            # Resend requires 'onboarding@resend.dev' unless a custom domain with DNS is verified.
+            # Free accounts CANNOT send from personal mailboxes like @gmail.com or unverified domains.
+            from_resend = "onboarding@resend.dev"
+            if config.SMTP_FROM_EMAIL and "@" in config.SMTP_FROM_EMAIL:
+                dom = config.SMTP_FROM_EMAIL.split("@")[1].lower()
+                if not any(pub in dom for pub in ["gmail.", "yahoo.", "hotmail.", "outlook.", "hiresphere.", "icloud."]):
+                    from_resend = config.SMTP_FROM_EMAIL
+
             payload = {
                 "from": f"{config.SMTP_FROM_NAME} <{from_resend}>",
                 "to": [recipient_email],
@@ -284,8 +291,6 @@ This code will expire in 24 hours. If you did not request this, please ignore th
         except Exception as e:
             print(f"[EMAIL SERVICE ERROR] Gmail SMTP error: {e}")
             return False, f"Gmail SMTP error: {str(e)}"
-        except Exception as e:
-            print(f"[EMAIL SERVICE RESEND API EXCEPTION] {e}")
 
     # 3. Attempt Brevo REST API (HTTPS port 443)
     brevo_key = config.BREVO_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("xkeysib-") else "")

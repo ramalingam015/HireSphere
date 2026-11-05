@@ -63,6 +63,31 @@ export const AdminDashboard = () => {
     }
   };
 
+  const handleResetDatabase = async () => {
+    const confirm = window.confirm(
+      "⚠️ DANGER: This will permanently wipe ALL user accounts, passwords, jobs, applications, and uploaded files!\n\nAre you sure you want to start from scratch?"
+    );
+    if (!confirm) return;
+
+    const secretKey = window.prompt("Enter Admin Secret Key to authorize factory reset:", "CS455-ADMIN-2026");
+    if (!secretKey) return;
+
+    try {
+      setActionLoading(true);
+      const res = await apiRequest("/api/admin/reset-database", {
+        method: "POST",
+        body: JSON.stringify({ admin_secret_key: secretKey })
+      });
+      alert(res.message || "Platform wiped successfully!");
+      localStorage.clear();
+      window.location.reload();
+    } catch (err) {
+      alert("Reset failed: " + err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
@@ -339,6 +364,29 @@ export const AdminDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Danger Zone: Factory Reset Database */}
+      <div className="card" style={{ marginTop: "2rem", border: "1px solid #fecaca", background: "#fff1f2", padding: "1.25rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+          <div>
+            <h4 style={{ margin: 0, color: "#991b1b", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <Trash2 size={18} /> Danger Zone: Factory Reset All Platform Data
+            </h4>
+            <p style={{ margin: "0.3rem 0 0", fontSize: "0.82rem", color: "#b91c1c" }}>
+              Permanently wipe all users, passwords, jobs, applications, interview slots, and uploaded files to restart the platform fresh.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm"
+            style={{ background: "#dc2626", color: "#ffffff", borderColor: "#b91c1c", fontWeight: 700 }}
+            onClick={handleResetDatabase}
+            disabled={actionLoading}
+          >
+            {actionLoading ? "Resetting..." : "🗑️ Wipe All Data & Start Fresh"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
