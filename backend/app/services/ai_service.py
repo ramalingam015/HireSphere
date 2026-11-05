@@ -1,8 +1,25 @@
 import requests
 import json
 import re
+import time
 from typing import Dict, Any, Optional
 from app.config import OLLAMA_URL, OLLAMA_MODEL
+
+_ollama_available = None
+_ollama_last_checked = 0
+
+def is_ollama_online() -> bool:
+    global _ollama_available, _ollama_last_checked
+    now = time.time()
+    if _ollama_available is not None and (now - _ollama_last_checked) < 60:
+        return _ollama_available
+    try:
+        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=0.3)
+        _ollama_available = (r.status_code == 200)
+    except Exception:
+        _ollama_available = False
+    _ollama_last_checked = now
+    return _ollama_available
 
 def parse_natural_language_search(query: str) -> Dict[str, Any]:
     """
@@ -14,31 +31,31 @@ def parse_natural_language_search(query: str) -> Dict[str, Any]:
     if not clean_query:
         return {}
 
-    # Attempt calling Ollama if available
-    try:
-        prompt = (
-            f"You are a job search assistant. Parse this query into JSON with keys: "
-            f"title (string), company (string), location (string), job_type (string, e.g. Full-time, Remote, Internship), "
-            f"skills (list of strings). Output ONLY valid JSON.\nQuery: \"{clean_query}\""
-        )
-        response = requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "format": "json"
-            },
-            timeout=5.0  # Quick timeout to prevent UI lag
-        )
-        if response.status_code == 200:
-            result_json = response.json().get("response", "{}")
-            parsed = json.loads(result_json)
-            if isinstance(parsed, dict):
-                return validate_and_clean_search_params(parsed)
-    except Exception:
-        # Fallback to local heuristic extractor (NFR-AVAIL-01)
-        pass
+    # Only call Ollama if it is verified to be online, avoiding 5-second connection freezes
+    if is_ollama_online():
+        try:
+            prompt = (
+                f"You are a job search assistant. Parse this query into JSON with keys: "
+                f"title (string), company (string), location (string), job_type (string, e.g. Full-time, Remote, Internship), "
+                f"skills (list of strings). Output ONLY valid JSON.\nQuery: \"{clean_query}\""
+            )
+            response = requests.post(
+                f"{OLLAMA_URL}/api/generate",
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "format": "json"
+                },
+                timeout=2.0
+            )
+            if response.status_code == 200:
+                result_json = response.json().get("response", "{}")
+                parsed = json.loads(result_json)
+                if isinstance(parsed, dict):
+                    return validate_and_clean_search_params(parsed)
+        except Exception:
+            pass
 
     return local_heuristic_search_parser(clean_query)
 

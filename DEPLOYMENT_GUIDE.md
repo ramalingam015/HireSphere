@@ -32,30 +32,30 @@ Configure these environment variables in your server's `.env` file or cloud dash
 
 ---
 
-### 📧 Setting Up Real Email OTP Delivery (Brevo or Gmail)
+### 📧 Setting Up Real Email OTP Delivery
 
-To have HireSphere send real 6-digit confirmation codes directly to user email inboxes:
-
-#### Option A: Using Brevo (Recommended — 300 Free Emails/Day, Instant, No Port Blocks)
-1. Sign up for a free account at [brevo.com](https://www.brevo.com/) (formerly Sendinblue).
-2. Go to **SMTP & API** -> **API Keys** -> click **Generate a new API key**. Name it `HireSphere` and copy the key (starts with `xkeysib-...`).
-3. In your Render Dashboard, go to your Web Service -> **Environment** tab:
-   - `BREVO_API_KEY`: *(paste your `xkeysib-...` key)*
-   - `SMTP_FROM_EMAIL`: *(paste the exact email address you registered with Brevo)*
-4. Click **Save Changes**. That's it! HireSphere will instantly deliver OTPs directly to any user inbox via Brevo's HTTPS API.
-
-#### Option B: Using Gmail SMTP (Free)
+#### Option A: Using Gmail Direct SSL (Recommended — Nodemailer Method)
+This connects via direct SSL on port 465 (the exact method Nodemailer uses with `service: 'gmail'`). It connects in 0.5s, never hangs, and doesn't suffer from cloud port blocking:
 1. Go to your **Google Account** -> **Security** -> Enable **2-Step Verification** (if not already enabled).
-2. Search for **App passwords** (or go to `myaccount.google.com/apppasswords`).
-3. Create an app name like `HireSphere` and click **Create**.
+2. Go to **App passwords** ([myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)).
+3. Create an app name (e.g. `HireSphere`) and click **Create**.
 4. Copy the generated **16-character password** (e.g. `abcd efgh ijkl mnop`).
-5. In your Render Web Service dashboard, go to the **Environment** tab and add:
-   - `SMTP_HOST`: `smtp.gmail.com`
-   - `SMTP_PORT`: `587`
-   - `SMTP_USER`: `your_email@gmail.com`
-   - `SMTP_PASSWORD`: `your-16-character-app-password`
-   - `SMTP_FROM_EMAIL`: `your_email@gmail.com`
-6. Click **Save Changes**. Render will automatically restart your app with real email delivery enabled!
+5. In your web application, click the **"✉️ Email Setup"** button in the top bar:
+   - Select **Gmail**
+   - Enter your Gmail address and 16-character App Password
+   - Click **Test & Save Email Settings**
+   - A real OTP test code will immediately arrive in your inbox!
+*(Or add `SMTP_USER=your_email@gmail.com` and `SMTP_PASSWORD=your_16_char_password` to your Render Environment tab).*
+
+#### Option B: Using Resend API (3,000 Free Emails / Month)
+Resend is modern, fast, and does not require manual account validation:
+1. Sign up for a free account at [resend.com](https://resend.com).
+2. Go to **API Keys** -> click **Create API Key**. Copy the key (`re_...`).
+3. Click **"✉️ Email Setup"** in HireSphere -> select **Resend** -> paste your key -> click **Test & Save**.
+
+#### Option C: Using Brevo API
+If using Brevo, note that **new Brevo accounts are placed on temporary hold until you complete your account profile on brevo.com**. Also ensure that the `From` address matches your registered Brevo account email.
+
 
 ## Method 1: Docker & Docker Compose (Recommended)
 

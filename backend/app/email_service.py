@@ -7,17 +7,25 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import app.config as config
 
+TIMEOUT_HTTP = 3.5
+TIMEOUT_SMTP = 3.5
+
 def update_email_configuration(
     brevo_api_key: str = "",
+    resend_api_key: str = "",
     smtp_user: str = "",
     smtp_password: str = "",
     smtp_host: str = "smtp.gmail.com",
-    smtp_port: int = 587,
+    smtp_port: int = 465,
     from_email: str = ""
 ):
     """
     Updates email credentials at runtime and saves them into the root .env file.
     """
+    if resend_api_key is not None and resend_api_key.strip():
+        config.RESEND_API_KEY = resend_api_key.strip()
+        os.environ["RESEND_API_KEY"] = config.RESEND_API_KEY
+
     if brevo_api_key is not None and brevo_api_key.strip():
         config.BREVO_API_KEY = brevo_api_key.strip()
         os.environ["BREVO_API_KEY"] = config.BREVO_API_KEY
@@ -27,11 +35,14 @@ def update_email_configuration(
         os.environ["SMTP_USER"] = config.SMTP_USER
 
     if smtp_password is not None:
-        config.SMTP_PASSWORD = smtp_password.strip()
+        config.SMTP_PASSWORD = smtp_password.strip().replace(" ", "")
         os.environ["SMTP_PASSWORD"] = config.SMTP_PASSWORD
         if config.SMTP_PASSWORD.startswith("xkeysib-") and not config.BREVO_API_KEY:
             config.BREVO_API_KEY = config.SMTP_PASSWORD
             os.environ["BREVO_API_KEY"] = config.BREVO_API_KEY
+        elif config.SMTP_PASSWORD.startswith("re_") and not config.RESEND_API_KEY:
+            config.RESEND_API_KEY = config.SMTP_PASSWORD
+            os.environ["RESEND_API_KEY"] = config.RESEND_API_KEY
 
     if smtp_host is not None and smtp_host.strip():
         config.SMTP_HOST = smtp_host.strip()
@@ -43,6 +54,11 @@ def update_email_configuration(
             os.environ["SMTP_PORT"] = str(config.SMTP_PORT)
         except Exception:
             pass
+
+    # If using Gmail, default to port 465 SSL for instant connection without STARTTLS handshake issues
+    if "gmail" in config.SMTP_HOST.lower() and config.SMTP_PORT == 587:
+        config.SMTP_PORT = 465
+        os.environ["SMTP_PORT"] = "465"
 
     if from_email is not None and from_email.strip():
         config.SMTP_FROM_EMAIL = from_email.strip()
@@ -60,6 +76,7 @@ def update_email_configuration(
 
         env_map = {
             "BREVO_API_KEY": config.BREVO_API_KEY,
+            "RESEND_API_KEY": config.RESEND_API_KEY,
             "SMTP_USER": config.SMTP_USER,
             "SMTP_PASSWORD": config.SMTP_PASSWORD,
             "SMTP_HOST": config.SMTP_HOST,
@@ -109,12 +126,12 @@ def get_email_service_status() -> dict:
             masked_user = f"{parts[0][:2]}***@{parts[1]}"
 
     provider = "Unconfigured"
-    if is_brevo:
-        provider = "Brevo (HTTPS API)"
-    elif is_resend:
+    if is_resend:
         provider = "Resend API"
     elif is_gmail:
-        provider = "Gmail SMTP"
+        provider = "Gmail Direct SSL (Port 465)"
+    elif is_brevo:
+        provider = "Brevo (HTTPS API)"
     elif has_creds:
         provider = f"Custom SMTP ({config.SMTP_HOST})"
 
@@ -132,7 +149,12 @@ def get_email_service_status() -> dict:
 def send_verification_email(recipient_email: str, code: str, user_name: str = "") -> tuple[bool, str]:
     """
     Dispatches a 6-digit verification code to the recipient.
-    Supports Brevo REST API, Resend REST API, and Standard SMTP (Gmail, Brevo SMTP, etc.)
+    Supports:
+    1. Gmail Direct SSL (Port 465) - fast, reliable, Nodemailer equivalent
+    2. Resend REST API (HTTPS Port 443)
+    3. Brevo REST API (HTTPS Port 443)
+    4. Custom SMTP
+    Fast timeouts (3.5s) ensure requests never hang or slow down the application.
     Returns (success: bool, detail: str).
     """
     subject = f"{code} is your HireSphere Verification Code"
@@ -192,13 +214,73 @@ This code will expire in 24 hours. If you did not request this, please ignore th
     print(f"=======================================================\n")
 
     if not status["configured"]:
-        return False, "No email credentials configured. Click 'Configure Real Email Delivery' to link Brevo or Gmail."
+        return False, "No email credentials configured. Click 'Configure Real Email Delivery' to link Gmail App Password or Resend."
 
     sender_email = config.SMTP_FROM_EMAIL or config.SMTP_USER
     if not sender_email or "@" not in sender_email:
         sender_email = "noreply@hiresphere.com"
 
-    # 1. Attempt Brevo REST API (HTTPS port 443 - immune to SMTP port blocks)
+    # 1. Attempt Gmail / SMTP Delivery First if Gmail credentials are provided (Nodemailer method)
+    is_gmail = "gmail" in config.SMTP_HOST.lower() or (config.SMTP_USER and "gmail.com" in config.SMTP_USER.lower())
+    if is_gmail and config.SMTP_USER and config.SMTP_PASSWORD:
+        try:
+            print(f"[EMAIL SERVICE] Attempting direct SSL delivery via smtp.gmail.com:465 as {config.SMTP_USER}...")
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"{config.SMTP_FROM_NAME} <{config.SMTP_USER}>"
+            msg["To"] = recipient_email
+            msg.attach(MIMEText(text_content, "plain"))
+            msg.attach(MIMEText(html_content, "html"))
+
+            # Direct SSL on Port 465 (Nodemailer default) avoids STARTTLS timeouts on cloud platforms
+            server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=TIMEOUT_SMTP)
+            clean_pass = config.SMTP_PASSWORD.replace(" ", "")
+            server.login(config.SMTP_USER, clean_pass)
+            server.sendmail(config.SMTP_USER, [recipient_email], msg.as_string())
+            server.quit()
+
+            print(f"[EMAIL SERVICE SUCCESS] Real email delivered to {recipient_email} via Gmail SSL!")
+            return True, "Email successfully dispatched to your inbox via Gmail SSL."
+        except smtplib.SMTPAuthenticationError:
+            print(f"[EMAIL SERVICE ERROR] Gmail Authentication Failed.")
+            return False, "Gmail authentication failed (535 Bad Credentials). You must use a 16-character Google App Password (not your normal Gmail password). In Google Account -> Security -> App passwords."
+        except (socket.timeout, TimeoutError):
+            print(f"[EMAIL SERVICE ERROR] Gmail SSL Connection timed out.")
+            return False, "Gmail connection timed out. Port 465 may be temporarily unreachable."
+        except Exception as e:
+            print(f"[EMAIL SERVICE ERROR] Gmail SMTP error: {e}")
+            return False, f"Gmail SMTP error: {str(e)}"
+
+    # 2. Attempt Resend REST API (HTTPS port 443 - zero block, fast 0.4s delivery)
+    resend_key = config.RESEND_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("re_") else "")
+    if resend_key:
+        try:
+            print(f"[EMAIL SERVICE] Attempting delivery via Resend REST API...")
+            headers = {
+                "Authorization": f"Bearer {resend_key}",
+                "Content-Type": "application/json"
+            }
+            from_resend = sender_email if "@" in sender_email and not sender_email.endswith("hiresphere.com") else "onboarding@resend.dev"
+            payload = {
+                "from": f"{config.SMTP_FROM_NAME} <{from_resend}>",
+                "to": [recipient_email],
+                "subject": subject,
+                "html": html_content,
+                "text": text_content
+            }
+            res = requests.post("https://api.resend.com/emails", json=payload, headers=headers, timeout=TIMEOUT_HTTP)
+            if res.status_code in (200, 201):
+                print(f"[EMAIL SERVICE SUCCESS] Real email delivered to {recipient_email} via Resend API!")
+                return True, "Email successfully dispatched to your inbox via Resend API."
+            else:
+                err_data = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
+                err_msg = err_data.get("message", res.text)
+                print(f"[EMAIL SERVICE RESEND API ERROR] Status {res.status_code}: {err_msg}")
+                return False, f"Resend API error: {err_msg}"
+        except Exception as e:
+            print(f"[EMAIL SERVICE RESEND API EXCEPTION] {e}")
+
+    # 3. Attempt Brevo REST API (HTTPS port 443)
     brevo_key = config.BREVO_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("xkeysib-") else "")
     if brevo_key:
         try:
@@ -218,7 +300,7 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                 "htmlContent": html_content,
                 "textContent": text_content
             }
-            res = requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=12)
+            res = requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=TIMEOUT_HTTP)
             if res.status_code in (200, 201):
                 print(f"[EMAIL SERVICE SUCCESS] Real email delivered to {recipient_email} via Brevo API!")
                 return True, "Email successfully dispatched to your inbox via Brevo API."
@@ -226,57 +308,32 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                 err_data = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
                 err_msg = err_data.get("message", res.text)
                 print(f"[EMAIL SERVICE BREVO API ERROR] Status {res.status_code}: {err_msg}")
-                if "sender" in err_msg.lower() or "not verified" in err_msg.lower():
-                    return False, f"Brevo Error: Sender email '{sender_email}' is not verified in your Brevo account. In Brevo, go to Senders & IP -> add and verify '{sender_email}'."
+                if "not verified" in err_msg.lower() or "sender" in err_msg.lower():
+                    return False, f"Brevo Error: Sender email '{sender_email}' is not verified in Brevo. Senders must be confirmed in Brevo under Senders & IP."
+                if "suspended" in err_msg.lower() or "not validated" in err_msg.lower() or "unauthorized" in err_msg.lower():
+                    return False, f"Brevo Error: Your Brevo account requires profile validation before sending transactional emails. We recommend switching to Gmail App Password (Nodemailer method) or Resend."
                 return False, f"Brevo API error ({res.status_code}): {err_msg}"
+        except (requests.exceptions.Timeout, socket.timeout):
+            return False, "Brevo API timed out. Network connection to Brevo is slow."
         except Exception as e:
             print(f"[EMAIL SERVICE BREVO API EXCEPTION] {e}")
+            return False, f"Brevo API exception: {str(e)}"
 
-    # 2. Attempt Resend REST API (HTTPS port 443)
-    resend_key = config.RESEND_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("re_") else "")
-    if resend_key:
+    # 4. Standard Custom SMTP
+    if config.SMTP_USER and config.SMTP_PASSWORD and not is_gmail:
         try:
-            print(f"[EMAIL SERVICE] Attempting delivery via Resend REST API...")
-            headers = {
-                "Authorization": f"Bearer {resend_key}",
-                "Content-Type": "application/json"
-            }
-            from_resend = sender_email if "@" in sender_email and not sender_email.endswith("hiresphere.com") else "onboarding@resend.dev"
-            payload = {
-                "from": f"{config.SMTP_FROM_NAME} <{from_resend}>",
-                "to": [recipient_email],
-                "subject": subject,
-                "html": html_content,
-                "text": text_content
-            }
-            res = requests.post("https://api.resend.com/emails", json=payload, headers=headers, timeout=12)
-            if res.status_code in (200, 201):
-                print(f"[EMAIL SERVICE SUCCESS] Real email delivered to {recipient_email} via Resend API!")
-                return True, "Email successfully dispatched to your inbox via Resend API."
-            else:
-                err_data = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
-                err_msg = err_data.get("message", res.text)
-                print(f"[EMAIL SERVICE RESEND API ERROR] Status {res.status_code}: {err_msg}")
-                return False, f"Resend API error: {err_msg}"
-        except Exception as e:
-            print(f"[EMAIL SERVICE RESEND API EXCEPTION] {e}")
-
-    # 3. Standard SMTP Delivery (Port 587 STARTTLS or Port 465 SSL)
-    if config.SMTP_USER and config.SMTP_PASSWORD:
-        try:
-            print(f"[EMAIL SERVICE] Attempting SMTP delivery via {config.SMTP_HOST}:{config.SMTP_PORT} as {config.SMTP_USER}...")
+            print(f"[EMAIL SERVICE] Attempting SMTP delivery via {config.SMTP_HOST}:{config.SMTP_PORT}...")
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
             msg["From"] = f"{config.SMTP_FROM_NAME} <{sender_email}>"
             msg["To"] = recipient_email
-
             msg.attach(MIMEText(text_content, "plain"))
             msg.attach(MIMEText(html_content, "html"))
 
             if config.SMTP_PORT == 465:
-                server = smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT, timeout=12)
+                server = smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT, timeout=TIMEOUT_SMTP)
             else:
-                server = smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=12)
+                server = smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=TIMEOUT_SMTP)
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
@@ -285,33 +342,10 @@ This code will expire in 24 hours. If you did not request this, please ignore th
             server.sendmail(sender_email, [recipient_email], msg.as_string())
             server.quit()
 
-            print(f"[EMAIL SERVICE SUCCESS] Real email delivered to {recipient_email} via SMTP!")
-            return True, "Email successfully dispatched to your inbox via SMTP."
-
-        except smtplib.SMTPAuthenticationError as e:
-            err_code = e.smtp_code if hasattr(e, "smtp_code") else 535
-            err_msg = e.smtp_error.decode() if hasattr(e, "smtp_error") and isinstance(e.smtp_error, bytes) else str(e)
-            print(f"[EMAIL SERVICE ERROR] Authentication failed ({err_code}): {err_msg}")
-            if "gmail" in config.SMTP_HOST.lower():
-                return False, "Gmail authentication failed. You must use a 16-character Google App Password (not your personal Gmail password)."
-            if "brevo" in config.SMTP_HOST.lower():
-                return False, "Brevo authentication failed. In Brevo, go to SMTP & API -> create and copy a new Master SMTP key."
-            return False, f"SMTP Authentication failed: {err_msg}"
-
-        except smtplib.SMTPSenderRefused as e:
-            print(f"[EMAIL SERVICE ERROR] Sender refused: {e}")
-            return False, f"Sender address '{sender_email}' was rejected by SMTP server. In Brevo, the 'From' address must be a verified sender in your account."
-
-        except smtplib.SMTPRecipientsRefused as e:
-            print(f"[EMAIL SERVICE ERROR] Recipient refused: {e}")
-            return False, f"Recipient email '{recipient_email}' was rejected by SMTP server."
-
-        except (socket.timeout, TimeoutError):
-            print(f"[EMAIL SERVICE ERROR] Connection timed out to {config.SMTP_HOST}:{config.SMTP_PORT}")
-            return False, f"Connection timed out connecting to {config.SMTP_HOST}:{config.SMTP_PORT}. Outbound port {config.SMTP_PORT} may be blocked by cloud provider."
-
+            print(f"[EMAIL SERVICE SUCCESS] Real email delivered via Custom SMTP!")
+            return True, "Email successfully dispatched via SMTP."
         except Exception as e:
-            print(f"[EMAIL SERVICE ERROR] {type(e).__name__}: {e}")
-            return False, f"SMTP error ({type(e).__name__}): {str(e)}"
+            print(f"[EMAIL SERVICE ERROR] Custom SMTP failed: {e}")
+            return False, f"Custom SMTP error: {str(e)}"
 
-    return False, "Failed to send email. Check SMTP server settings."
+    return False, "Failed to send email. Check credentials or use Gmail App Password."

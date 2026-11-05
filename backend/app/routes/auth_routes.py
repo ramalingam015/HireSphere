@@ -174,10 +174,11 @@ def configure_email(req: EmailConfigRequest, db: Session = Depends(get_db)):
     """
     update_email_configuration(
         brevo_api_key=req.brevo_api_key or "",
+        resend_api_key=req.resend_api_key or "",
         smtp_user=req.smtp_user or "",
         smtp_password=req.smtp_password or "",
         smtp_host=req.smtp_host or "smtp.gmail.com",
-        smtp_port=req.smtp_port or 587,
+        smtp_port=req.smtp_port or 465,
         from_email=req.from_email or req.smtp_user or ""
     )
 

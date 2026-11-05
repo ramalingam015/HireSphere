@@ -271,12 +271,13 @@ class ContentModerationRequest(BaseModel):
     reason: Optional[str] = ""
 
 class EmailConfigRequest(BaseModel):
-    provider: str = "brevo"
+    provider: str = "gmail"
     brevo_api_key: Optional[str] = None
+    resend_api_key: Optional[str] = None
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
     smtp_host: Optional[str] = "smtp.gmail.com"
-    smtp_port: Optional[int] = 587
+    smtp_port: Optional[int] = 465
     from_email: Optional[str] = None
     test_recipient: Optional[str] = None
 
