@@ -38,4 +38,6 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "HireSphere Recruitment").strip()
 # Direct API Keys (alternative to SMTP for maximum reliability)
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "").strip()
+
 

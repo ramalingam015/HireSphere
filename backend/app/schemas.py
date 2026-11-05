@@ -274,6 +274,7 @@ class EmailConfigRequest(BaseModel):
     provider: str = "gmail"
     brevo_api_key: Optional[str] = None
     resend_api_key: Optional[str] = None
+    sendgrid_api_key: Optional[str] = None
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
     smtp_host: Optional[str] = "smtp.gmail.com"

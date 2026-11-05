@@ -70,7 +70,7 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
         "user": new_user,
         "email_sent": email_sent,
         "email_detail": email_detail,
-        "dev_code": verification_code,
+        "dev_code": None,
         "message": (
             f"Account created! A 6-digit verification code has been emailed to {new_user.email}."
             if email_sent else
@@ -138,7 +138,7 @@ def resend_verification(req: ResendVerificationRequest, db: Session = Depends(ge
     return {
         "email_sent": email_sent,
         "email_detail": email_detail,
-        "dev_code": code,
+        "dev_code": None,
         "message": (
             f"A fresh 6-digit verification code has been dispatched to {user.email}."
             if email_sent else
@@ -175,6 +175,7 @@ def configure_email(req: EmailConfigRequest, db: Session = Depends(get_db)):
     update_email_configuration(
         brevo_api_key=req.brevo_api_key or "",
         resend_api_key=req.resend_api_key or "",
+        sendgrid_api_key=req.sendgrid_api_key or "",
         smtp_user=req.smtp_user or "",
         smtp_password=req.smtp_password or "",
         smtp_host=req.smtp_host or "smtp.gmail.com",
@@ -235,9 +236,9 @@ def login(login_in: UserLogin, db: Session = Depends(get_db)):
         
         email_sent, email_detail = send_verification_email(user.email, user.email_verification_code, user.full_name)
         msg = (
-            f"Email not verified. A 6-digit verification code has been emailed to {user.email}. Dev Code: {user.email_verification_code}"
+            f"Email not verified. A 6-digit verification code has been emailed to {user.email}. Please check your inbox (and Spam folder) to verify."
             if email_sent else
-            f"Email not verified. ({email_detail}). Dev Code: {user.email_verification_code}"
+            f"Email not verified. ({email_detail}). Please verify your email before logging in."
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

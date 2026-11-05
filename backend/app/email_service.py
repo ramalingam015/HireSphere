@@ -13,6 +13,7 @@ TIMEOUT_SMTP = 3.5
 def update_email_configuration(
     brevo_api_key: str = "",
     resend_api_key: str = "",
+    sendgrid_api_key: str = "",
     smtp_user: str = "",
     smtp_password: str = "",
     smtp_host: str = "smtp.gmail.com",
@@ -25,6 +26,10 @@ def update_email_configuration(
     if resend_api_key is not None and resend_api_key.strip():
         config.RESEND_API_KEY = resend_api_key.strip()
         os.environ["RESEND_API_KEY"] = config.RESEND_API_KEY
+
+    if sendgrid_api_key is not None and sendgrid_api_key.strip():
+        config.SENDGRID_API_KEY = sendgrid_api_key.strip()
+        os.environ["SENDGRID_API_KEY"] = config.SENDGRID_API_KEY
 
     if brevo_api_key is not None and brevo_api_key.strip():
         config.BREVO_API_KEY = brevo_api_key.strip()
@@ -43,6 +48,9 @@ def update_email_configuration(
         elif config.SMTP_PASSWORD.startswith("re_") and not config.RESEND_API_KEY:
             config.RESEND_API_KEY = config.SMTP_PASSWORD
             os.environ["RESEND_API_KEY"] = config.RESEND_API_KEY
+        elif config.SMTP_PASSWORD.startswith("SG.") and not config.SENDGRID_API_KEY:
+            config.SENDGRID_API_KEY = config.SMTP_PASSWORD
+            os.environ["SENDGRID_API_KEY"] = config.SENDGRID_API_KEY
 
     if smtp_host is not None and smtp_host.strip():
         config.SMTP_HOST = smtp_host.strip()
@@ -77,6 +85,7 @@ def update_email_configuration(
         env_map = {
             "BREVO_API_KEY": config.BREVO_API_KEY,
             "RESEND_API_KEY": config.RESEND_API_KEY,
+            "SENDGRID_API_KEY": config.SENDGRID_API_KEY,
             "SMTP_USER": config.SMTP_USER,
             "SMTP_PASSWORD": config.SMTP_PASSWORD,
             "SMTP_HOST": config.SMTP_HOST,
@@ -110,8 +119,9 @@ def get_email_service_status() -> dict:
     """
     is_brevo = bool(config.BREVO_API_KEY or (config.SMTP_PASSWORD and config.SMTP_PASSWORD.startswith("xkeysib-")) or "brevo" in config.SMTP_HOST.lower())
     is_resend = bool(config.RESEND_API_KEY or (config.SMTP_PASSWORD and config.SMTP_PASSWORD.startswith("re_")))
+    is_sendgrid = bool(config.SENDGRID_API_KEY or (config.SMTP_PASSWORD and config.SMTP_PASSWORD.startswith("SG.")))
     is_gmail = "gmail" in config.SMTP_HOST.lower()
-    has_creds = bool((config.SMTP_USER and config.SMTP_PASSWORD) or config.BREVO_API_KEY or config.RESEND_API_KEY)
+    has_creds = bool((config.SMTP_USER and config.SMTP_PASSWORD) or config.BREVO_API_KEY or config.RESEND_API_KEY or config.SENDGRID_API_KEY)
 
     masked_user = ""
     if config.SMTP_USER:
@@ -125,13 +135,15 @@ def get_email_service_status() -> dict:
             parts = config.SMTP_FROM_EMAIL.split("@")
             masked_user = f"{parts[0][:2]}***@{parts[1]}"
 
-    provider = "Unconfigured (Use 1-Click Verify on screen)"
-    if is_resend:
-        provider = "Resend API (HTTPS Port 443 - Works on Render)"
+    provider = "Unconfigured"
+    if is_sendgrid:
+        provider = "SendGrid API (HTTPS Port 443 - Verified Sender)"
+    elif is_brevo:
+        provider = "Brevo API (HTTPS Port 443 - Verified Sender)"
+    elif is_resend:
+        provider = "Resend API (HTTPS Port 443)"
     elif is_gmail:
         provider = "Gmail Direct SSL (Port 465 - Blocked on Render cloud)"
-    elif is_brevo:
-        provider = "Brevo (HTTPS Port 443)"
     elif has_creds:
         provider = f"Custom SMTP ({config.SMTP_HOST})"
 
@@ -252,11 +264,90 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                 err_data = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
                 err_msg = err_data.get("message", res.text)
                 print(f"[EMAIL SERVICE RESEND API ERROR] Status {res.status_code}: {err_msg}")
+                if "testing emails" in err_msg.lower() or "verify a domain" in err_msg.lower():
+                    return False, (
+                        "Resend Sandbox Restriction: Resend's free default domain (onboarding@resend.dev) only allows sending to your own account email. "
+                        "To send OTPs to ANY recipient in the world, verify your domain at resend.com/domains, OR use Brevo / SendGrid which let you send to any recipient for free."
+                    )
                 return False, f"Resend API error: {err_msg}"
         except Exception as e:
             print(f"[EMAIL SERVICE RESEND API EXCEPTION] {e}")
 
-    # 2. Attempt Gmail / SMTP Delivery if Gmail credentials are provided
+    # 2. Attempt SendGrid REST API (HTTPS port 443 - sends to ANY recipient worldwide)
+    sendgrid_key = config.SENDGRID_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("SG.") else "")
+    if sendgrid_key:
+        try:
+            print(f"[EMAIL SERVICE] Attempting delivery via SendGrid REST API (HTTPS Port 443)...")
+            sg_headers = {
+                "Authorization": f"Bearer {sendgrid_key}",
+                "Content-Type": "application/json"
+            }
+            sg_sender = config.SMTP_FROM_EMAIL or config.SMTP_USER or "hirepro455@gmail.com"
+            sg_payload = {
+                "personalizations": [{"to": [{"email": recipient_email}]}],
+                "from": {"email": sg_sender, "name": config.SMTP_FROM_NAME or "HireSphere"},
+                "subject": subject,
+                "content": [
+                    {"type": "text/plain", "value": text_content},
+                    {"type": "text/html", "value": html_content}
+                ]
+            }
+            res = requests.post("https://api.sendgrid.com/v3/mail/send", json=sg_payload, headers=sg_headers, timeout=TIMEOUT_HTTP)
+            if res.status_code in (200, 202):
+                print(f"[EMAIL SERVICE SUCCESS] Real email delivered to {recipient_email} via SendGrid API!")
+                return True, "Email successfully dispatched to your inbox via SendGrid API."
+            else:
+                err_data = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
+                err_list = err_data.get("errors", [])
+                err_msg = err_list[0].get("message", res.text) if err_list else res.text
+                print(f"[EMAIL SERVICE SENDGRID API ERROR] Status {res.status_code}: {err_msg}")
+                return False, f"SendGrid error: {err_msg}"
+        except Exception as e:
+            print(f"[EMAIL SERVICE SENDGRID API EXCEPTION] {e}")
+            return False, f"SendGrid exception: {str(e)}"
+
+    # 3. Attempt Brevo REST API (HTTPS port 443 - sends to ANY recipient worldwide)
+    brevo_key = config.BREVO_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("xkeysib-") else "")
+    if brevo_key:
+        try:
+            print(f"[EMAIL SERVICE] Attempting delivery via Brevo REST API...")
+            headers = {
+                "accept": "application/json",
+                "api-key": brevo_key,
+                "content-type": "application/json"
+            }
+            # Brevo requires the sender to be an email address registered in the Brevo account
+            brevo_sender = config.SMTP_FROM_EMAIL or config.SMTP_USER or "hirepro455@gmail.com"
+            payload = {
+                "sender": {
+                    "name": config.SMTP_FROM_NAME or "HireSphere",
+                    "email": brevo_sender
+                },
+                "to": [{"email": recipient_email, "name": user_name or recipient_email}],
+                "subject": subject,
+                "htmlContent": html_content,
+                "textContent": text_content
+            }
+            res = requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=TIMEOUT_HTTP)
+            if res.status_code in (200, 201):
+                print(f"[EMAIL SERVICE SUCCESS] Real email delivered to {recipient_email} via Brevo API!")
+                return True, "Email successfully dispatched to your inbox via Brevo API."
+            else:
+                err_data = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
+                err_msg = err_data.get("message", res.text)
+                print(f"[EMAIL SERVICE BREVO API ERROR] Status {res.status_code}: {err_msg}")
+                if "not verified" in err_msg.lower() or "sender" in err_msg.lower():
+                    return False, f"Brevo Error: Sender email '{brevo_sender}' is not verified in Brevo. In Email Setup, set 'Registered Brevo Sender Email' to your exact Brevo signup email."
+                if "suspended" in err_msg.lower() or "not validated" in err_msg.lower() or "unauthorized" in err_msg.lower():
+                    return False, f"Brevo Error: Your Brevo account requires profile validation before sending transactional emails."
+                return False, f"Brevo API error ({res.status_code}): {err_msg}"
+        except (requests.exceptions.Timeout, socket.timeout):
+            return False, "Brevo API timed out. Network connection to Brevo is slow."
+        except Exception as e:
+            print(f"[EMAIL SERVICE BREVO API EXCEPTION] {e}")
+            return False, f"Brevo API exception: {str(e)}"
+
+    # 4. Attempt Gmail / SMTP Delivery if Gmail credentials are provided
     is_gmail = "gmail" in config.SMTP_HOST.lower() or (config.SMTP_USER and "gmail.com" in config.SMTP_USER.lower())
     if is_gmail and config.SMTP_USER and config.SMTP_PASSWORD:
         try:
@@ -286,50 +377,11 @@ This code will expire in 24 hours. If you did not request this, please ignore th
         except OSError as e:
             if getattr(e, "errno", None) == 101 or "network is unreachable" in str(e).lower():
                 print(f"[EMAIL SERVICE ERROR] Render blocks outbound SMTP ports: {e}")
-                return False, "Render Cloud Firewall: Render permanently blocks outbound SMTP ports (25, 465, 587) with [Errno 101] Network is unreachable. On Render, email must be sent via HTTPS REST API over Port 443 (such as Resend API 're_...' or Brevo API). Or simply use the 1-Click Auto-Fill button on screen."
+                return False, "Render Cloud Firewall: Render permanently blocks outbound SMTP ports (25, 465, 587) with [Errno 101] Network is unreachable. On Render, email must be sent via HTTPS REST API over Port 443 (such as Brevo, SendGrid, or Resend)."
             return False, f"Gmail SMTP network error: {str(e)}"
         except Exception as e:
             print(f"[EMAIL SERVICE ERROR] Gmail SMTP error: {e}")
             return False, f"Gmail SMTP error: {str(e)}"
-
-    # 3. Attempt Brevo REST API (HTTPS port 443)
-    brevo_key = config.BREVO_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("xkeysib-") else "")
-    if brevo_key:
-        try:
-            print(f"[EMAIL SERVICE] Attempting delivery via Brevo REST API...")
-            headers = {
-                "accept": "application/json",
-                "api-key": brevo_key,
-                "content-type": "application/json"
-            }
-            payload = {
-                "sender": {
-                    "name": config.SMTP_FROM_NAME or "HireSphere",
-                    "email": sender_email
-                },
-                "to": [{"email": recipient_email, "name": user_name or recipient_email}],
-                "subject": subject,
-                "htmlContent": html_content,
-                "textContent": text_content
-            }
-            res = requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=TIMEOUT_HTTP)
-            if res.status_code in (200, 201):
-                print(f"[EMAIL SERVICE SUCCESS] Real email delivered to {recipient_email} via Brevo API!")
-                return True, "Email successfully dispatched to your inbox via Brevo API."
-            else:
-                err_data = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
-                err_msg = err_data.get("message", res.text)
-                print(f"[EMAIL SERVICE BREVO API ERROR] Status {res.status_code}: {err_msg}")
-                if "not verified" in err_msg.lower() or "sender" in err_msg.lower():
-                    return False, f"Brevo Error: Sender email '{sender_email}' is not verified in Brevo. Senders must be confirmed in Brevo under Senders & IP."
-                if "suspended" in err_msg.lower() or "not validated" in err_msg.lower() or "unauthorized" in err_msg.lower():
-                    return False, f"Brevo Error: Your Brevo account requires profile validation before sending transactional emails. We recommend switching to Gmail App Password (Nodemailer method) or Resend."
-                return False, f"Brevo API error ({res.status_code}): {err_msg}"
-        except (requests.exceptions.Timeout, socket.timeout):
-            return False, "Brevo API timed out. Network connection to Brevo is slow."
-        except Exception as e:
-            print(f"[EMAIL SERVICE BREVO API EXCEPTION] {e}")
-            return False, f"Brevo API exception: {str(e)}"
 
     # 4. Standard Custom SMTP
     if config.SMTP_USER and config.SMTP_PASSWORD and not is_gmail:
