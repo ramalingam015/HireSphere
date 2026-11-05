@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { apiRequest } from "../api/client";
 import { Briefcase, AlertCircle, ShieldCheck, Mail, CheckCircle2, RefreshCw, Eye, EyeOff, Wrench } from "lucide-react";
 
-export const Register = ({ onSwitchToLogin }) => {
+export const Register = ({ onSwitchToLogin, onOpenEmailConfig }) => {
   const { register, verifyEmail, resendVerification } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -173,6 +173,18 @@ export const Register = ({ onSwitchToLogin }) => {
                     onClick={() => setEnteredCode(devCode)}
                   >
                     Auto-fill
+                  </button>
+                </div>
+              )}
+              {onOpenEmailConfig && (
+                <div style={{ marginTop: "0.6rem" }}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenEmailConfig(pendingEmail)}
+                    className="btn btn-secondary btn-sm"
+                    style={{ width: "100%", fontSize: "0.75rem", background: "#fef3c7", borderColor: "#fde68a", color: "#92400e", fontWeight: 600 }}
+                  >
+                    ⚙️ Configure Real Email Delivery (Brevo / Gmail)
                   </button>
                 </div>
               )}

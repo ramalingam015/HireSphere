@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -107,6 +108,17 @@ def create_job(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="FR-REC-01 Violation: Every job must contain at least one required skill."
         )
+
+    # Deduplication check: prevent duplicate role/job if submitted within 10 seconds (e.g. fast double-click)
+    ten_sec_ago = datetime.utcnow() - timedelta(seconds=10)
+    existing_job = db.query(Job).filter(
+        Job.recruiter_id == recruiter.id,
+        Job.title == job_in.title.strip(),
+        Job.company == (job_in.company or recruiter.company or "Tech Company").strip(),
+        Job.created_at >= ten_sec_ago
+    ).first()
+    if existing_job:
+        return existing_job
 
     new_job = Job(
         recruiter_id=recruiter.id,

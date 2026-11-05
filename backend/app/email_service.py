@@ -1,49 +1,132 @@
+import os
 import smtplib
 import socket
 import requests
+from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from app.config import (
-    SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD,
-    SMTP_FROM_EMAIL, SMTP_FROM_NAME, BREVO_API_KEY, RESEND_API_KEY
-)
+import app.config as config
+
+def update_email_configuration(
+    brevo_api_key: str = "",
+    smtp_user: str = "",
+    smtp_password: str = "",
+    smtp_host: str = "smtp.gmail.com",
+    smtp_port: int = 587,
+    from_email: str = ""
+):
+    """
+    Updates email credentials at runtime and saves them into the root .env file.
+    """
+    if brevo_api_key is not None and brevo_api_key.strip():
+        config.BREVO_API_KEY = brevo_api_key.strip()
+        os.environ["BREVO_API_KEY"] = config.BREVO_API_KEY
+
+    if smtp_user is not None:
+        config.SMTP_USER = smtp_user.strip()
+        os.environ["SMTP_USER"] = config.SMTP_USER
+
+    if smtp_password is not None:
+        config.SMTP_PASSWORD = smtp_password.strip()
+        os.environ["SMTP_PASSWORD"] = config.SMTP_PASSWORD
+        if config.SMTP_PASSWORD.startswith("xkeysib-") and not config.BREVO_API_KEY:
+            config.BREVO_API_KEY = config.SMTP_PASSWORD
+            os.environ["BREVO_API_KEY"] = config.BREVO_API_KEY
+
+    if smtp_host is not None and smtp_host.strip():
+        config.SMTP_HOST = smtp_host.strip()
+        os.environ["SMTP_HOST"] = config.SMTP_HOST
+
+    if smtp_port is not None:
+        try:
+            config.SMTP_PORT = int(smtp_port)
+            os.environ["SMTP_PORT"] = str(config.SMTP_PORT)
+        except Exception:
+            pass
+
+    if from_email is not None and from_email.strip():
+        config.SMTP_FROM_EMAIL = from_email.strip()
+        os.environ["SMTP_FROM_EMAIL"] = config.SMTP_FROM_EMAIL
+    elif config.SMTP_USER and "@" in config.SMTP_USER:
+        config.SMTP_FROM_EMAIL = config.SMTP_USER
+        os.environ["SMTP_FROM_EMAIL"] = config.SMTP_FROM_EMAIL
+
+    # Persist to .env in backend directory
+    try:
+        env_path = Path(__file__).resolve().parent.parent / ".env"
+        existing_lines = []
+        if env_path.exists():
+            existing_lines = env_path.read_text(encoding="utf-8").splitlines()
+
+        env_map = {
+            "BREVO_API_KEY": config.BREVO_API_KEY,
+            "SMTP_USER": config.SMTP_USER,
+            "SMTP_PASSWORD": config.SMTP_PASSWORD,
+            "SMTP_HOST": config.SMTP_HOST,
+            "SMTP_PORT": str(config.SMTP_PORT),
+            "SMTP_FROM_EMAIL": config.SMTP_FROM_EMAIL
+        }
+
+        written_keys = set()
+        new_lines = []
+        for line in existing_lines:
+            if "=" in line and not line.strip().startswith("#"):
+                key = line.split("=")[0].strip()
+                if key in env_map:
+                    new_lines.append(f"{key}={env_map[key]}")
+                    written_keys.add(key)
+                    continue
+            new_lines.append(line)
+
+        for key, val in env_map.items():
+            if key not in written_keys and val:
+                new_lines.append(f"{key}={val}")
+
+        env_path.write_text("\n".join(new_lines), encoding="utf-8")
+        print(f"[CONFIG] Updated runtime email configuration and persisted to {env_path}")
+    except Exception as e:
+        print(f"[CONFIG WARNING] Could not persist to .env: {e}")
 
 def get_email_service_status() -> dict:
     """
     Returns diagnostic information about current email delivery configuration.
     """
-    is_brevo = bool(BREVO_API_KEY or (SMTP_PASSWORD and SMTP_PASSWORD.startswith("xkeysib-")) or "brevo" in SMTP_HOST.lower())
-    is_resend = bool(RESEND_API_KEY or (SMTP_PASSWORD and SMTP_PASSWORD.startswith("re_")))
-    is_gmail = "gmail" in SMTP_HOST.lower()
-    has_creds = bool((SMTP_USER and SMTP_PASSWORD) or BREVO_API_KEY or RESEND_API_KEY)
+    is_brevo = bool(config.BREVO_API_KEY or (config.SMTP_PASSWORD and config.SMTP_PASSWORD.startswith("xkeysib-")) or "brevo" in config.SMTP_HOST.lower())
+    is_resend = bool(config.RESEND_API_KEY or (config.SMTP_PASSWORD and config.SMTP_PASSWORD.startswith("re_")))
+    is_gmail = "gmail" in config.SMTP_HOST.lower()
+    has_creds = bool((config.SMTP_USER and config.SMTP_PASSWORD) or config.BREVO_API_KEY or config.RESEND_API_KEY)
 
     masked_user = ""
-    if SMTP_USER:
-        if "@" in SMTP_USER:
-            parts = SMTP_USER.split("@")
+    if config.SMTP_USER:
+        if "@" in config.SMTP_USER:
+            parts = config.SMTP_USER.split("@")
             masked_user = f"{parts[0][:2]}***@{parts[1]}"
         else:
-            masked_user = f"{SMTP_USER[:3]}***"
+            masked_user = f"{config.SMTP_USER[:3]}***"
+    elif config.SMTP_FROM_EMAIL:
+        if "@" in config.SMTP_FROM_EMAIL:
+            parts = config.SMTP_FROM_EMAIL.split("@")
+            masked_user = f"{parts[0][:2]}***@{parts[1]}"
 
     provider = "Unconfigured"
     if is_brevo:
-        provider = "Brevo (Sendinblue)"
+        provider = "Brevo (HTTPS API)"
     elif is_resend:
         provider = "Resend API"
     elif is_gmail:
         provider = "Gmail SMTP"
     elif has_creds:
-        provider = f"Custom SMTP ({SMTP_HOST})"
+        provider = f"Custom SMTP ({config.SMTP_HOST})"
 
     return {
         "configured": has_creds,
         "provider": provider,
-        "smtp_host": SMTP_HOST,
-        "smtp_port": SMTP_PORT,
+        "smtp_host": config.SMTP_HOST,
+        "smtp_port": config.SMTP_PORT,
         "smtp_user": masked_user,
-        "from_email": SMTP_FROM_EMAIL,
-        "from_name": SMTP_FROM_NAME,
-        "using_api": bool(BREVO_API_KEY or RESEND_API_KEY or (SMTP_PASSWORD and (SMTP_PASSWORD.startswith("xkeysib-") or SMTP_PASSWORD.startswith("re_"))))
+        "from_email": config.SMTP_FROM_EMAIL or config.SMTP_USER or "",
+        "from_name": config.SMTP_FROM_NAME,
+        "using_api": bool(config.BREVO_API_KEY or config.RESEND_API_KEY or (config.SMTP_PASSWORD and (config.SMTP_PASSWORD.startswith("xkeysib-") or config.SMTP_PASSWORD.startswith("re_"))))
     }
 
 def send_verification_email(recipient_email: str, code: str, user_name: str = "") -> tuple[bool, str]:
@@ -109,14 +192,14 @@ This code will expire in 24 hours. If you did not request this, please ignore th
     print(f"=======================================================\n")
 
     if not status["configured"]:
-        return False, "No email credentials configured. Please set SMTP_USER and SMTP_PASSWORD in Render Environment variables."
+        return False, "No email credentials configured. Click 'Configure Real Email Delivery' to link Brevo or Gmail."
 
-    sender_email = SMTP_FROM_EMAIL or SMTP_USER
+    sender_email = config.SMTP_FROM_EMAIL or config.SMTP_USER
     if not sender_email or "@" not in sender_email:
         sender_email = "noreply@hiresphere.com"
 
     # 1. Attempt Brevo REST API (HTTPS port 443 - immune to SMTP port blocks)
-    brevo_key = BREVO_API_KEY or (SMTP_PASSWORD if SMTP_PASSWORD.startswith("xkeysib-") else "")
+    brevo_key = config.BREVO_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("xkeysib-") else "")
     if brevo_key:
         try:
             print(f"[EMAIL SERVICE] Attempting delivery via Brevo REST API...")
@@ -127,7 +210,7 @@ This code will expire in 24 hours. If you did not request this, please ignore th
             }
             payload = {
                 "sender": {
-                    "name": SMTP_FROM_NAME or "HireSphere",
+                    "name": config.SMTP_FROM_NAME or "HireSphere",
                     "email": sender_email
                 },
                 "to": [{"email": recipient_email, "name": user_name or recipient_email}],
@@ -143,7 +226,6 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                 err_data = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
                 err_msg = err_data.get("message", res.text)
                 print(f"[EMAIL SERVICE BREVO API ERROR] Status {res.status_code}: {err_msg}")
-                # If error mentions sender verification, provide clear action
                 if "sender" in err_msg.lower() or "not verified" in err_msg.lower():
                     return False, f"Brevo Error: Sender email '{sender_email}' is not verified in your Brevo account. In Brevo, go to Senders & IP -> add and verify '{sender_email}'."
                 return False, f"Brevo API error ({res.status_code}): {err_msg}"
@@ -151,7 +233,7 @@ This code will expire in 24 hours. If you did not request this, please ignore th
             print(f"[EMAIL SERVICE BREVO API EXCEPTION] {e}")
 
     # 2. Attempt Resend REST API (HTTPS port 443)
-    resend_key = RESEND_API_KEY or (SMTP_PASSWORD if SMTP_PASSWORD.startswith("re_") else "")
+    resend_key = config.RESEND_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("re_") else "")
     if resend_key:
         try:
             print(f"[EMAIL SERVICE] Attempting delivery via Resend REST API...")
@@ -159,10 +241,9 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                 "Authorization": f"Bearer {resend_key}",
                 "Content-Type": "application/json"
             }
-            # For testing without a custom domain, Resend requires onboarding@resend.dev
             from_resend = sender_email if "@" in sender_email and not sender_email.endswith("hiresphere.com") else "onboarding@resend.dev"
             payload = {
-                "from": f"{SMTP_FROM_NAME} <{from_resend}>",
+                "from": f"{config.SMTP_FROM_NAME} <{from_resend}>",
                 "to": [recipient_email],
                 "subject": subject,
                 "html": html_content,
@@ -181,26 +262,26 @@ This code will expire in 24 hours. If you did not request this, please ignore th
             print(f"[EMAIL SERVICE RESEND API EXCEPTION] {e}")
 
     # 3. Standard SMTP Delivery (Port 587 STARTTLS or Port 465 SSL)
-    if SMTP_USER and SMTP_PASSWORD:
+    if config.SMTP_USER and config.SMTP_PASSWORD:
         try:
-            print(f"[EMAIL SERVICE] Attempting SMTP delivery via {SMTP_HOST}:{SMTP_PORT} as {SMTP_USER}...")
+            print(f"[EMAIL SERVICE] Attempting SMTP delivery via {config.SMTP_HOST}:{config.SMTP_PORT} as {config.SMTP_USER}...")
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"] = f"{SMTP_FROM_NAME} <{sender_email}>"
+            msg["From"] = f"{config.SMTP_FROM_NAME} <{sender_email}>"
             msg["To"] = recipient_email
 
             msg.attach(MIMEText(text_content, "plain"))
             msg.attach(MIMEText(html_content, "html"))
 
-            if SMTP_PORT == 465:
-                server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=12)
+            if config.SMTP_PORT == 465:
+                server = smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT, timeout=12)
             else:
-                server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=12)
+                server = smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=12)
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
 
-            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.login(config.SMTP_USER, config.SMTP_PASSWORD)
             server.sendmail(sender_email, [recipient_email], msg.as_string())
             server.quit()
 
@@ -211,9 +292,9 @@ This code will expire in 24 hours. If you did not request this, please ignore th
             err_code = e.smtp_code if hasattr(e, "smtp_code") else 535
             err_msg = e.smtp_error.decode() if hasattr(e, "smtp_error") and isinstance(e.smtp_error, bytes) else str(e)
             print(f"[EMAIL SERVICE ERROR] Authentication failed ({err_code}): {err_msg}")
-            if "gmail" in SMTP_HOST.lower():
+            if "gmail" in config.SMTP_HOST.lower():
                 return False, "Gmail authentication failed. You must use a 16-character Google App Password (not your personal Gmail password)."
-            if "brevo" in SMTP_HOST.lower():
+            if "brevo" in config.SMTP_HOST.lower():
                 return False, "Brevo authentication failed. In Brevo, go to SMTP & API -> create and copy a new Master SMTP key."
             return False, f"SMTP Authentication failed: {err_msg}"
 
@@ -226,8 +307,8 @@ This code will expire in 24 hours. If you did not request this, please ignore th
             return False, f"Recipient email '{recipient_email}' was rejected by SMTP server."
 
         except (socket.timeout, TimeoutError):
-            print(f"[EMAIL SERVICE ERROR] Connection timed out to {SMTP_HOST}:{SMTP_PORT}")
-            return False, f"Connection timed out connecting to {SMTP_HOST}:{SMTP_PORT}. Outbound port {SMTP_PORT} may be blocked by cloud provider."
+            print(f"[EMAIL SERVICE ERROR] Connection timed out to {config.SMTP_HOST}:{config.SMTP_PORT}")
+            return False, f"Connection timed out connecting to {config.SMTP_HOST}:{config.SMTP_PORT}. Outbound port {config.SMTP_PORT} may be blocked by cloud provider."
 
         except Exception as e:
             print(f"[EMAIL SERVICE ERROR] {type(e).__name__}: {e}")

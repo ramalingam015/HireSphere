@@ -32,6 +32,16 @@ def create_interview_slot(
     if slot_in.start_time >= slot_in.end_time:
         raise HTTPException(status_code=400, detail="Start time must be before end time")
 
+    # Deduplication check: prevent creating duplicate slot with same start & end time for the same job (e.g. fast double-click)
+    existing_slot = db.query(InterviewSlot).filter(
+        InterviewSlot.job_id == job.id,
+        InterviewSlot.start_time == slot_in.start_time,
+        InterviewSlot.end_time == slot_in.end_time,
+        InterviewSlot.is_cancelled == False
+    ).first()
+    if existing_slot:
+        return existing_slot
+
     slot = InterviewSlot(
         job_id=job.id,
         recruiter_id=recruiter.id,

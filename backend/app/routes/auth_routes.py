@@ -9,10 +9,10 @@ from app.models import User, UserRole, RecruiterStatus
 from app.schemas import (
     UserCreate, UserLogin, UserOut, UserProfileUpdate, Token,
     EmailVerificationRequest, ResendVerificationRequest, EmailVerificationResponse,
-    TestEmailRequest
+    TestEmailRequest, EmailConfigRequest
 )
 from app.auth import get_password_hash, verify_password, create_access_token, get_current_user
-from app.email_service import send_verification_email, get_email_service_status
+from app.email_service import send_verification_email, get_email_service_status, update_email_configuration
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -166,6 +166,50 @@ def test_email(req: TestEmailRequest):
         "detail": detail,
         "test_code": test_code if not sent else None
     }
+
+@router.post("/configure-email")
+def configure_email(req: EmailConfigRequest, db: Session = Depends(get_db)):
+    """
+    Configures email credentials at runtime and optionally sends a real test email to verify delivery.
+    """
+    update_email_configuration(
+        brevo_api_key=req.brevo_api_key or "",
+        smtp_user=req.smtp_user or "",
+        smtp_password=req.smtp_password or "",
+        smtp_host=req.smtp_host or "smtp.gmail.com",
+        smtp_port=req.smtp_port or 587,
+        from_email=req.from_email or req.smtp_user or ""
+    )
+
+    if req.test_recipient and "@" in req.test_recipient:
+        test_code = str(random.randint(100000, 999999))
+        sent, detail = send_verification_email(req.test_recipient.strip(), test_code, "HireSphere Tester")
+        if sent:
+            pending_user = db.query(User).filter(User.email == req.test_recipient.strip()).first()
+            if pending_user and not pending_user.is_email_verified:
+                pending_user.email_verification_code = test_code
+                pending_user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
+                db.commit()
+
+            return {
+                "success": True,
+                "message": f"Real verification email sent to {req.test_recipient}! Please check your inbox (and Spam folder).",
+                "status": get_email_service_status()
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Email delivery failed: {detail}",
+                "detail": detail,
+                "status": get_email_service_status()
+            }
+
+    return {
+        "success": True,
+        "message": "Email configuration updated successfully.",
+        "status": get_email_service_status()
+    }
+
 
 @router.post("/login", response_model=Token)
 def login(login_in: UserLogin, db: Session = Depends(get_db)):

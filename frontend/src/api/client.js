@@ -80,6 +80,10 @@ export const apiRequest = async (endpoint, options = {}) => {
 
     return data;
   } catch (err) {
+    if (err.status) {
+      // Re-throw genuine HTTP responses from backend (e.g. 400 Bad Request, 403 Forbidden)
+      throw err;
+    }
     // If backend is unreachable (e.g. static hosting on GitHub Pages), fallback to mock engine
     console.warn(`[HireSphere API] Fetch to "${url}" failed. Using mock fallback engine.`, err.message);
     return handleMockFallback(endpoint, options);
@@ -174,6 +178,14 @@ function handleMockFallback(endpoint, options) {
       test_code: "123456"
     };
   }
+  if (endpoint.startsWith("/api/auth/configure-email")) {
+    let body = {};
+    try { body = JSON.parse(options.body); } catch (_) {}
+    return {
+      success: true,
+      message: `Configured in demo mode for ${body.provider || 'Brevo'}. (Real email delivery requires backend running on Render with credentials).`
+    };
+  }
 
   // Auth login
   if (endpoint.startsWith("/api/auth/login")) {
@@ -189,6 +201,11 @@ function handleMockFallback(endpoint, options) {
   if (endpoint === "/api/jobs" && method === "POST") {
     let body = {};
     try { body = JSON.parse(options.body); } catch (_) {}
+    // Deduplicate mock job creation
+    const existing = mockJobs.find(j => j.title === body.title && j.company === body.company);
+    if (existing) {
+      return existing;
+    }
     const newJob = {
       id: mockJobs.length + 1,
       recruiter_id: 2,
@@ -262,6 +279,27 @@ function handleMockFallback(endpoint, options) {
   // Interviews
   if (endpoint.startsWith("/api/interviews/slots/job/")) {
     return mockSlots;
+  }
+  if (endpoint === "/api/interviews/slots" && method === "POST") {
+    let body = {};
+    try { body = JSON.parse(options.body); } catch (_) {}
+    const existing = mockSlots.find(s => s.job_id === body.job_id && s.start_time === body.start_time && s.end_time === body.end_time);
+    if (existing) {
+      return existing;
+    }
+    const newSlot = {
+      id: mockSlots.length + 1,
+      job_id: body.job_id,
+      start_time: body.start_time,
+      end_time: body.end_time,
+      selection_deadline: body.selection_deadline,
+      meeting_link: body.meeting_link || "https://meet.google.com/interview",
+      notes: body.notes || "",
+      is_booked: false,
+      is_cancelled: false
+    };
+    mockSlots = [...mockSlots, newSlot];
+    return newSlot;
   }
   if (endpoint.startsWith("/api/interviews/book")) {
     return { ...mockSlots[0], is_booked: true };

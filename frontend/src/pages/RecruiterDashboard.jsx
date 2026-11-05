@@ -36,6 +36,7 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
   const [newSkillName, setNewSkillName] = useState("");
   const [newSkillRequired, setNewSkillRequired] = useState(true);
   const [formError, setFormError] = useState("");
+  const [isSubmittingJob, setIsSubmittingJob] = useState(false);
 
   // New Interview Slot Form State
   const [showCreateSlotModal, setShowCreateSlotModal] = useState(false);
@@ -44,6 +45,7 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
   const [slotDeadline, setSlotDeadline] = useState("");
   const [slotMeetingLink, setSlotMeetingLink] = useState("https://meet.google.com/interview");
   const [slotNotes, setSlotNotes] = useState("");
+  const [isSubmittingSlot, setIsSubmittingSlot] = useState(false);
 
   const fetchMyJobs = async () => {
     try {
@@ -103,6 +105,7 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
 
   const handleCreateJob = async (e) => {
     e.preventDefault();
+    if (isSubmittingJob) return; // Prevent duplicate submission
     setFormError("");
 
     // FR-REC-01: at least 1 required skill
@@ -111,6 +114,7 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
       return;
     }
 
+    setIsSubmittingJob(true);
     try {
       await apiRequest("/api/jobs", {
         method: "POST",
@@ -132,12 +136,15 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
       fetchMyJobs();
     } catch (err) {
       setFormError(err.message || "Failed to create job posting");
+    } finally {
+      setIsSubmittingJob(false);
     }
   };
 
   const handleCreateSlot = async (e) => {
     e.preventDefault();
-    if (!selectedJobId) return;
+    if (!selectedJobId || isSubmittingSlot) return; // Prevent duplicate submission
+    setIsSubmittingSlot(true);
 
     try {
       await apiRequest("/api/interviews/slots", {
@@ -156,8 +163,11 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
       fetchSlotsForJob(selectedJobId);
     } catch (err) {
       alert("Failed to create slot: " + err.message);
+    } finally {
+      setIsSubmittingSlot(false);
     }
   };
+
 
   const handleTransitionState = async (appId, nextStatus) => {
     try {
@@ -646,11 +656,11 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1.5rem" }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowCreateJobModal(false)}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowCreateJobModal(false)} disabled={isSubmittingJob}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Publish Job
+                <button type="submit" className="btn btn-primary" disabled={isSubmittingJob}>
+                  {isSubmittingJob ? "Publishing Job..." : "Publish Job"}
                 </button>
               </div>
             </form>
@@ -724,11 +734,11 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1rem" }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowCreateSlotModal(false)}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowCreateSlotModal(false)} disabled={isSubmittingSlot}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Slot
+                <button type="submit" className="btn btn-primary" disabled={isSubmittingSlot}>
+                  {isSubmittingSlot ? "Saving Slot..." : "Save Slot"}
                 </button>
               </div>
             </form>
