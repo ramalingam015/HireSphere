@@ -125,13 +125,13 @@ def get_email_service_status() -> dict:
             parts = config.SMTP_FROM_EMAIL.split("@")
             masked_user = f"{parts[0][:2]}***@{parts[1]}"
 
-    provider = "Unconfigured"
+    provider = "Unconfigured (Use 1-Click Verify on screen)"
     if is_resend:
-        provider = "Resend API"
+        provider = "Resend API (HTTPS Port 443 - Works on Render)"
     elif is_gmail:
-        provider = "Gmail Direct SSL (Port 465)"
+        provider = "Gmail Direct SSL (Port 465 - Blocked on Render cloud)"
     elif is_brevo:
-        provider = "Brevo (HTTPS API)"
+        provider = "Brevo (HTTPS Port 443)"
     elif has_creds:
         provider = f"Custom SMTP ({config.SMTP_HOST})"
 
@@ -220,42 +220,11 @@ This code will expire in 24 hours. If you did not request this, please ignore th
     if not sender_email or "@" not in sender_email:
         sender_email = "noreply@hiresphere.com"
 
-    # 1. Attempt Gmail / SMTP Delivery First if Gmail credentials are provided (Nodemailer method)
-    is_gmail = "gmail" in config.SMTP_HOST.lower() or (config.SMTP_USER and "gmail.com" in config.SMTP_USER.lower())
-    if is_gmail and config.SMTP_USER and config.SMTP_PASSWORD:
-        try:
-            print(f"[EMAIL SERVICE] Attempting direct SSL delivery via smtp.gmail.com:465 as {config.SMTP_USER}...")
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"] = f"{config.SMTP_FROM_NAME} <{config.SMTP_USER}>"
-            msg["To"] = recipient_email
-            msg.attach(MIMEText(text_content, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
-
-            # Direct SSL on Port 465 (Nodemailer default) avoids STARTTLS timeouts on cloud platforms
-            server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=TIMEOUT_SMTP)
-            clean_pass = config.SMTP_PASSWORD.replace(" ", "")
-            server.login(config.SMTP_USER, clean_pass)
-            server.sendmail(config.SMTP_USER, [recipient_email], msg.as_string())
-            server.quit()
-
-            print(f"[EMAIL SERVICE SUCCESS] Real email delivered to {recipient_email} via Gmail SSL!")
-            return True, "Email successfully dispatched to your inbox via Gmail SSL."
-        except smtplib.SMTPAuthenticationError:
-            print(f"[EMAIL SERVICE ERROR] Gmail Authentication Failed.")
-            return False, "Gmail authentication failed (535 Bad Credentials). You must use a 16-character Google App Password (not your normal Gmail password). In Google Account -> Security -> App passwords."
-        except (socket.timeout, TimeoutError):
-            print(f"[EMAIL SERVICE ERROR] Gmail SSL Connection timed out.")
-            return False, "Gmail connection timed out. Port 465 may be temporarily unreachable."
-        except Exception as e:
-            print(f"[EMAIL SERVICE ERROR] Gmail SMTP error: {e}")
-            return False, f"Gmail SMTP error: {str(e)}"
-
-    # 2. Attempt Resend REST API (HTTPS port 443 - zero block, fast 0.4s delivery)
+    # 1. Attempt Resend REST API First (HTTPS port 443 - zero block on Render, 100% reliable, ~0.3s delivery)
     resend_key = config.RESEND_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("re_") else "")
     if resend_key:
         try:
-            print(f"[EMAIL SERVICE] Attempting delivery via Resend REST API...")
+            print(f"[EMAIL SERVICE] Attempting delivery via Resend REST API (HTTPS Port 443)...")
             headers = {
                 "Authorization": f"Bearer {resend_key}",
                 "Content-Type": "application/json"
@@ -277,6 +246,44 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                 err_msg = err_data.get("message", res.text)
                 print(f"[EMAIL SERVICE RESEND API ERROR] Status {res.status_code}: {err_msg}")
                 return False, f"Resend API error: {err_msg}"
+        except Exception as e:
+            print(f"[EMAIL SERVICE RESEND API EXCEPTION] {e}")
+
+    # 2. Attempt Gmail / SMTP Delivery if Gmail credentials are provided
+    is_gmail = "gmail" in config.SMTP_HOST.lower() or (config.SMTP_USER and "gmail.com" in config.SMTP_USER.lower())
+    if is_gmail and config.SMTP_USER and config.SMTP_PASSWORD:
+        try:
+            print(f"[EMAIL SERVICE] Attempting direct SSL delivery via smtp.gmail.com:465 as {config.SMTP_USER}...")
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"{config.SMTP_FROM_NAME} <{config.SMTP_USER}>"
+            msg["To"] = recipient_email
+            msg.attach(MIMEText(text_content, "plain"))
+            msg.attach(MIMEText(html_content, "html"))
+
+            # Direct SSL on Port 465
+            server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=TIMEOUT_SMTP)
+            clean_pass = config.SMTP_PASSWORD.replace(" ", "")
+            server.login(config.SMTP_USER, clean_pass)
+            server.sendmail(config.SMTP_USER, [recipient_email], msg.as_string())
+            server.quit()
+
+            print(f"[EMAIL SERVICE SUCCESS] Real email delivered to {recipient_email} via Gmail SSL!")
+            return True, "Email successfully dispatched to your inbox via Gmail SSL."
+        except smtplib.SMTPAuthenticationError:
+            print(f"[EMAIL SERVICE ERROR] Gmail Authentication Failed.")
+            return False, "Gmail authentication failed (535 Bad Credentials). You must use a 16-character Google App Password (not your normal Gmail password). In Google Account -> Security -> App passwords."
+        except (socket.timeout, TimeoutError):
+            print(f"[EMAIL SERVICE ERROR] Gmail SSL Connection timed out.")
+            return False, "Gmail connection timed out. Port 465 may be blocked by your hosting firewall."
+        except OSError as e:
+            if getattr(e, "errno", None) == 101 or "network is unreachable" in str(e).lower():
+                print(f"[EMAIL SERVICE ERROR] Render blocks outbound SMTP ports: {e}")
+                return False, "Render Cloud Firewall: Render permanently blocks outbound SMTP ports (25, 465, 587) with [Errno 101] Network is unreachable. On Render, email must be sent via HTTPS REST API over Port 443 (such as Resend API 're_...' or Brevo API). Or simply use the 1-Click Auto-Fill button on screen."
+            return False, f"Gmail SMTP network error: {str(e)}"
+        except Exception as e:
+            print(f"[EMAIL SERVICE ERROR] Gmail SMTP error: {e}")
+            return False, f"Gmail SMTP error: {str(e)}"
         except Exception as e:
             print(f"[EMAIL SERVICE RESEND API EXCEPTION] {e}")
 

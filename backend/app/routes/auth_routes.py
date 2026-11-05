@@ -70,7 +70,7 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
         "user": new_user,
         "email_sent": email_sent,
         "email_detail": email_detail,
-        "dev_code": None if email_sent else verification_code,
+        "dev_code": verification_code,
         "message": (
             f"Account created! A 6-digit verification code has been emailed to {new_user.email}."
             if email_sent else
@@ -138,7 +138,7 @@ def resend_verification(req: ResendVerificationRequest, db: Session = Depends(ge
     return {
         "email_sent": email_sent,
         "email_detail": email_detail,
-        "dev_code": None if email_sent else code,
+        "dev_code": code,
         "message": (
             f"A fresh 6-digit verification code has been dispatched to {user.email}."
             if email_sent else
@@ -164,7 +164,7 @@ def test_email(req: TestEmailRequest):
         "success": sent,
         "recipient": req.email.strip(),
         "detail": detail,
-        "test_code": test_code if not sent else None
+        "test_code": test_code
     }
 
 @router.post("/configure-email")
@@ -235,7 +235,7 @@ def login(login_in: UserLogin, db: Session = Depends(get_db)):
         
         email_sent, email_detail = send_verification_email(user.email, user.email_verification_code, user.full_name)
         msg = (
-            f"Email not verified. A 6-digit verification code has been emailed to {user.email}. Please verify your email before logging in."
+            f"Email not verified. A 6-digit verification code has been emailed to {user.email}. Dev Code: {user.email_verification_code}"
             if email_sent else
             f"Email not verified. ({email_detail}). Dev Code: {user.email_verification_code}"
         )

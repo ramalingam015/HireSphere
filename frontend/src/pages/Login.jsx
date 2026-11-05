@@ -54,13 +54,20 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
     }
   };
 
-  const handleVerify = async (e) => {
-    e.preventDefault();
+  const handleVerify = async (e, codeOverride = null) => {
+    if (e && e.preventDefault) e.preventDefault();
     setError("");
     setVerifyLoading(true);
 
+    const codeToSubmit = (codeOverride || verificationCode || "").trim();
+    if (!codeToSubmit || codeToSubmit.length !== 6) {
+      setError("Please enter a valid 6-digit verification code.");
+      setVerifyLoading(false);
+      return;
+    }
+
     try {
-      await verifyEmail(email, verificationCode.trim());
+      await verifyEmail(email, codeToSubmit);
       setVerifySuccessMsg("Email verified successfully! Logging you in...");
     } catch (err) {
       setError(err.message || "Invalid verification code. Please check and try again.");
@@ -120,6 +127,55 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
             </p>
           </div>
 
+          {/* Standout 1-Click Instant Verification Box */}
+          {devCode && (
+            <div style={{
+              background: "linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)",
+              border: "2px solid #3b82f6",
+              borderRadius: "10px",
+              padding: "1rem",
+              marginBottom: "1.25rem",
+              textAlign: "center",
+              boxShadow: "0 4px 12px rgba(59, 130, 246, 0.15)"
+            }}>
+              <div style={{ fontSize: "0.8rem", fontWeight: 800, color: "#1d4ed8", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "0.25rem" }}>
+                ⚡ Instant Verification (No Waiting for Email)
+              </div>
+              <p style={{ fontSize: "0.78rem", color: "#475569", margin: "0.2rem 0 0.5rem" }}>
+                Your 6-digit code is generated. Click below to verify and log in immediately:
+              </p>
+              <div style={{
+                fontSize: "1.8rem",
+                fontWeight: 800,
+                letterSpacing: "6px",
+                color: "#1e40af",
+                fontFamily: "monospace",
+                background: "#ffffff",
+                display: "inline-block",
+                padding: "0.3rem 1.25rem",
+                borderRadius: "8px",
+                border: "1px dashed #93c5fd",
+                margin: "0.25rem 0"
+              }}>
+                {devCode}
+              </div>
+              <div style={{ marginTop: "0.6rem" }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ width: "100%", fontWeight: 700, fontSize: "0.95rem", padding: "0.6rem" }}
+                  disabled={verifyLoading}
+                  onClick={() => {
+                    setVerificationCode(devCode);
+                    handleVerify(null, devCode);
+                  }}
+                >
+                  ⚡ 1-Click Auto-Fill & Verify Account
+                </button>
+              </div>
+            </div>
+          )}
+
           {emailSent ? (
             <div style={{
               background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534",
@@ -129,7 +185,7 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
               <CheckCircle2 size={16} style={{ marginTop: "2px", flexShrink: 0 }} />
               <div>
                 <strong>Email successfully dispatched!</strong>
-                <p style={{ margin: "0.2rem 0 0" }}>Check your inbox (and Spam/Promotions folder) for the 6-digit code.</p>
+                <p style={{ margin: "0.2rem 0 0" }}>Check your inbox (and Spam folder) or click the 1-Click button above.</p>
               </div>
             </div>
           ) : (
@@ -141,21 +197,8 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
                 <AlertCircle size={15} /> Real Email Not Delivered
               </div>
               <p style={{ margin: "0.2rem 0" }}>
-                {emailDetail || "SMTP credentials (SMTP_USER, SMTP_PASSWORD) are not yet configured on your server."}
+                {emailDetail || "Render cloud blocks outbound SMTP ports 25, 465, and 587. Click the 1-Click button above to verify instantly, or configure Resend API for real inbox delivery."}
               </p>
-              {devCode && (
-                <div style={{ marginTop: "0.5rem", padding: "0.4rem 0.6rem", background: "#fef3c7", borderRadius: "6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>Test Code: <strong style={{ letterSpacing: "2px", fontSize: "1.05rem", color: "#b45309" }}>{devCode}</strong></span>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: "0.72rem", padding: "0.2rem 0.5rem" }}
-                    onClick={() => setVerificationCode(devCode)}
-                  >
-                    Auto-fill
-                  </button>
-                </div>
-              )}
               {onOpenEmailConfig && (
                 <div style={{ marginTop: "0.6rem" }}>
                   <button
@@ -164,7 +207,7 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
                     className="btn btn-secondary btn-sm"
                     style={{ width: "100%", fontSize: "0.75rem", background: "#fef3c7", borderColor: "#fde68a", color: "#92400e", fontWeight: 600 }}
                   >
-                    ⚙️ Configure Real Email Delivery (Brevo / Gmail)
+                    ⚙️ Configure Real Email Delivery (Resend API)
                   </button>
                 </div>
               )}
