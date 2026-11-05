@@ -307,7 +307,7 @@ This code will expire in 24 hours. If you did not request this, please ignore th
             return False, f"SendGrid exception: {str(e)}"
 
     # 3. Attempt Brevo REST API (HTTPS port 443 - sends to ANY recipient worldwide)
-    brevo_key = config.BREVO_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("xkeysib-") else "")
+    brevo_key = (config.BREVO_API_KEY or (config.SMTP_PASSWORD if config.SMTP_PASSWORD.startswith("xkeysib-") else "")).strip().strip('"').strip("'")
     if brevo_key:
         try:
             print(f"[EMAIL SERVICE] Attempting delivery via Brevo REST API...")
@@ -336,6 +336,12 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                 err_data = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
                 err_msg = err_data.get("message", res.text)
                 print(f"[EMAIL SERVICE BREVO API ERROR] Status {res.status_code}: {err_msg}")
+                if "key not found" in err_msg.lower() or res.status_code == 401:
+                    return False, (
+                        "Brevo 401 (Key not found): The API key you entered was not recognized by Brevo. "
+                        "Make sure you generate the key from the 'API Keys' tab (NOT the SMTP tab) at https://app.brevo.com/settings/keys/api. "
+                        "Click 'Generate a new API key' and copy the full key starting with 'xkeysib-'."
+                    )
                 if "not verified" in err_msg.lower() or "sender" in err_msg.lower():
                     return False, f"Brevo Error: Sender email '{brevo_sender}' is not verified in Brevo. In Email Setup, set 'Registered Brevo Sender Email' to your exact Brevo signup email."
                 if "suspended" in err_msg.lower() or "not validated" in err_msg.lower() or "unauthorized" in err_msg.lower():
