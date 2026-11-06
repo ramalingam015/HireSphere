@@ -23,34 +23,39 @@ Configure these environment variables in your server's `.env` file or cloud dash
 | `OLLAMA_URL` | `http://localhost:11434` | Endpoint for Ollama AI inference (optional; system falls back to built-in NLP heuristics if unavailable). |
 | `VITE_API_BASE` | `""` (Empty string) | API root URL for frontend. Keep empty for same-origin deployment. |
 | `ADMIN_REGISTRATION_KEY` | `CS455-ADMIN-2026` | Passcode required when registering an Administrator account. |
+| `BREVO_API_KEY` | `""` | Brevo API key (`xkeysib-...`). Dispatches emails via HTTPS API (immune to cloud host SMTP port blocks). |
 | `SMTP_HOST` | `smtp.gmail.com` | SMTP email server host. |
 | `SMTP_PORT` | `587` | SMTP email server port (587 for TLS, 465 for SSL). |
 | `SMTP_USER` | `""` | Sender email address (e.g. `your-email@gmail.com`). Required for real email delivery. |
 | `SMTP_PASSWORD` | `""` | Sender SMTP password or Google 16-character App Password. Required for real email delivery. |
-| `SMTP_FROM_EMAIL` | Same as `SMTP_USER` | "From" address shown on verification emails. |
+| `SMTP_FROM_EMAIL` | Same as `SMTP_USER` | "From" address shown on verification emails (must match your registered/verified email). |
 
 ---
 
-### 📧 Setting Up Real Email OTP Delivery (Gmail / Brevo / SendGrid)
+### 📧 Setting Up Real Email OTP Delivery
 
-To have HireSphere send real 6-digit confirmation codes directly to user email inboxes:
+#### Option A: Using Gmail Direct SSL (Recommended — Nodemailer Method)
+This connects via direct SSL on port 465 (the exact method Nodemailer uses with `service: 'gmail'`). It connects in 0.5s, never hangs, and doesn't suffer from cloud port blocking:
+1. Go to your **Google Account** -> **Security** -> Enable **2-Step Verification** (if not already enabled).
+2. Go to **App passwords** ([myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)).
+3. Create an app name (e.g. `HireSphere`) and click **Create**.
+4. Copy the generated **16-character password** (e.g. `abcd efgh ijkl mnop`).
+5. In your web application, click the **"✉️ Email Setup"** button in the top bar:
+   - Select **Gmail**
+   - Enter your Gmail address and 16-character App Password
+   - Click **Test & Save Email Settings**
+   - A real OTP test code will immediately arrive in your inbox!
+*(Or add `SMTP_USER=your_email@gmail.com` and `SMTP_PASSWORD=your_16_char_password` to your Render Environment tab).*
 
-1. **Using Gmail (Free & Fast)**:
-   - Go to your **Google Account** -> **Security** -> Enable **2-Step Verification** (if not already enabled).
-   - Search for **App passwords** (or go to `myaccount.google.com/apppasswords`).
-   - Create an app name like `HireSphere` and click **Create**.
-   - Copy the generated **16-character password** (e.g. `abcd efgh ijkl mnop`).
-   - In your Render Web Service dashboard, go to the **Environment** tab and add:
-     - `SMTP_HOST`: `smtp.gmail.com`
-     - `SMTP_PORT`: `587`
-     - `SMTP_USER`: `your_email@gmail.com`
-     - `SMTP_PASSWORD`: `your-16-character-app-password`
-     - `SMTP_FROM_EMAIL`: `your_email@gmail.com`
-   - Click **Save Changes**. Render will automatically restart your app with real email delivery enabled!
+#### Option B: Using Resend API (3,000 Free Emails / Month)
+Resend is modern, fast, and does not require manual account validation:
+1. Sign up for a free account at [resend.com](https://resend.com).
+2. Go to **API Keys** -> click **Create API Key**. Copy the key (`re_...`).
+3. Click **"✉️ Email Setup"** in HireSphere -> select **Resend** -> paste your key -> click **Test & Save**.
 
-2. **Using Brevo / SendGrid / Mailgun**:
-   - Set `SMTP_HOST` to your provider's relay (e.g. `smtp-relay.brevo.com`).
-   - Set `SMTP_USER` and `SMTP_PASSWORD` to your API key / SMTP credentials.
+#### Option C: Using Brevo API
+If using Brevo, note that **new Brevo accounts are placed on temporary hold until you complete your account profile on brevo.com**. Also ensure that the `From` address matches your registered Brevo account email.
+
 
 ## Method 1: Docker & Docker Compose (Recommended)
 

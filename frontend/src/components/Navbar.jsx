@@ -6,7 +6,7 @@ import {
   Sparkles, CheckCircle2, Clock, AlertTriangle 
 } from "lucide-react";
 
-export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith }) => {
+export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenEmailConfig }) => {
   const { user, logout, loginAsDemo } = useAuth();
 
   return (
@@ -67,7 +67,11 @@ export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith }) => {
       <div className="navbar-inner">
         <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
           <button 
-            onClick={() => setCurrentTab("jobs")} 
+            onClick={() => {
+              if (user?.role === "recruiter") setCurrentTab("recruiter_dashboard");
+              else if (user?.role === "admin") setCurrentTab("admin");
+              else setCurrentTab("jobs");
+            }} 
             className="brand-logo"
             style={{ textAlign: "left" }}
           >
@@ -76,13 +80,16 @@ export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith }) => {
           </button>
 
           <nav className="nav-links">
-            <button 
-              className={`nav-item ${currentTab === "jobs" ? "active" : ""}`}
-              onClick={() => setCurrentTab("jobs")}
-            >
-              <Briefcase size={16} />
-              <span>Jobs & ATS</span>
-            </button>
+            {/* Candidate-only Jobs & ATS tab (FR-REC-01/02 Candidate interface) */}
+            {(!user || user?.role === "candidate") && (
+              <button 
+                className={`nav-item ${currentTab === "jobs" ? "active" : ""}`}
+                onClick={() => setCurrentTab("jobs")}
+              >
+                <Briefcase size={16} />
+                <span>Jobs & ATS</span>
+              </button>
+            )}
 
             {user?.role === "candidate" && (
               <button 
@@ -94,7 +101,7 @@ export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith }) => {
               </button>
             )}
 
-            {(user?.role === "recruiter" || user?.role === "admin") && (
+            {user?.role === "recruiter" && (
               <button 
                 className={`nav-item ${currentTab === "recruiter_dashboard" ? "active" : ""}`}
                 onClick={() => setCurrentTab("recruiter_dashboard")}

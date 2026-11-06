@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { Briefcase, Sparkles, AlertCircle, Mail, CheckCircle2, RefreshCw, Eye, EyeOff } from "lucide-react";
+import { apiRequest } from "../api/client";
+import { Briefcase, Sparkles, AlertCircle, Mail, CheckCircle2, RefreshCw, Eye, EyeOff, Wrench } from "lucide-react";
 
-export const Login = ({ onSwitchToRegister }) => {
+export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
   const { login, loginAsDemo, verifyEmail, resendVerification } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -14,9 +15,15 @@ export const Login = ({ onSwitchToRegister }) => {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [emailSent, setEmailSent] = useState(false);
+  const [emailDetail, setEmailDetail] = useState("");
   const [devCode, setDevCode] = useState("");
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifySuccessMsg, setVerifySuccessMsg] = useState("");
+
+  // Diagnostics state
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [diagInfo, setDiagInfo] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,6 +40,7 @@ export const Login = ({ onSwitchToRegister }) => {
         if (match && match[1]) {
           setDevCode(match[1]);
           setEmailSent(false);
+          setEmailDetail(msg);
           setError("Email verification is required before signing in.");
         } else {
           setEmailSent(true);
@@ -46,13 +54,20 @@ export const Login = ({ onSwitchToRegister }) => {
     }
   };
 
-  const handleVerify = async (e) => {
-    e.preventDefault();
+  const handleVerify = async (e, codeOverride = null) => {
+    if (e && e.preventDefault) e.preventDefault();
     setError("");
     setVerifyLoading(true);
 
+    const codeToSubmit = (codeOverride || verificationCode || "").trim();
+    if (!codeToSubmit || codeToSubmit.length !== 6) {
+      setError("Please enter a valid 6-digit verification code.");
+      setVerifyLoading(false);
+      return;
+    }
+
     try {
-      await verifyEmail(email, verificationCode.trim());
+      await verifyEmail(email, codeToSubmit);
       setVerifySuccessMsg("Email verified successfully! Logging you in...");
     } catch (err) {
       setError(err.message || "Invalid verification code. Please check and try again.");
@@ -67,12 +82,26 @@ export const Login = ({ onSwitchToRegister }) => {
       const res = await resendVerification(email);
       if (res) {
         setEmailSent(res.email_sent === true);
+        if (res.email_detail) setEmailDetail(res.email_detail);
         if (res.dev_code) setDevCode(res.dev_code);
         setVerifySuccessMsg(res.message || "A new verification code has been dispatched to your email!");
       }
-      setTimeout(() => setVerifySuccessMsg(""), 5000);
+      setTimeout(() => setVerifySuccessMsg(""), 6000);
     } catch (err) {
       setError(err.message || "Failed to resend verification code");
+    }
+  };
+
+  const handleCheckDiagnostics = async () => {
+    setDiagLoading(true);
+    try {
+      const data = await apiRequest("/api/auth/email-diagnostics");
+      setDiagInfo(data);
+      setShowDiagnostics(true);
+    } catch (err) {
+      alert("Failed to load email server diagnostics: " + err.message);
+    } finally {
+      setDiagLoading(false);
     }
   };
 
@@ -90,33 +119,42 @@ export const Login = ({ onSwitchToRegister }) => {
             </div>
             <h2 style={{ fontSize: "1.35rem", fontWeight: 700 }}>Email Verification Required</h2>
             <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-              {emailSent ? (
-                <span>A 6-digit confirmation code was emailed to<br /><strong style={{ color: "var(--text-main)" }}>{email}</strong></span>
-              ) : (
-                <span>Verification code generated for<br /><strong style={{ color: "var(--text-main)" }}>{email}</strong></span>
-              )}
+              <span>A 6-digit confirmation code was emailed to<br /><strong style={{ color: "var(--text-main)" }}>{email}</strong></span>
             </p>
           </div>
 
-          {!emailSent && (
+          {emailSent ? (
+            <div style={{
+              background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534",
+              padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.82rem",
+              display: "flex", alignItems: "flex-start", gap: "0.5rem"
+            }}>
+              <CheckCircle2 size={16} style={{ marginTop: "2px", flexShrink: 0 }} />
+              <div>
+                <strong>Verification email dispatched!</strong>
+                <p style={{ margin: "0.2rem 0 0" }}>Please check your inbox (and Spam folder) for the 6-digit code.</p>
+              </div>
+            </div>
+          ) : (
             <div style={{
               background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e",
               padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.82rem"
             }}>
-              <strong>ℹ️ Real Email Delivery Notice:</strong>
-              <p style={{ margin: "0.25rem 0" }}>
-                To send emails directly to inboxes on Render, set <code>SMTP_USER</code> and <code>SMTP_PASSWORD</code> in your Render Environment settings.
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 700, marginBottom: "0.3rem" }}>
+                <AlertCircle size={15} /> Email Delivery Notice
+              </div>
+              <p style={{ margin: "0.2rem 0" }}>
+                {emailDetail || "Could not dispatch verification email. Please check your email configuration."}
               </p>
-              {devCode && (
-                <div style={{ marginTop: "0.4rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>Test Code (SMTP unconfigured): <strong style={{ letterSpacing: "2px", fontSize: "1rem" }}>{devCode}</strong></span>
+              {onOpenEmailConfig && (
+                <div style={{ marginTop: "0.6rem" }}>
                   <button
                     type="button"
+                    onClick={() => onOpenEmailConfig(email)}
                     className="btn btn-secondary btn-sm"
-                    style={{ fontSize: "0.72rem", padding: "0.15rem 0.45rem" }}
-                    onClick={() => setVerificationCode(devCode)}
+                    style={{ width: "100%", fontSize: "0.75rem", background: "#fef3c7", borderColor: "#fde68a", color: "#92400e", fontWeight: 600 }}
                   >
-                    Auto-fill
+                    ⚙️ Configure Real Email Delivery (Brevo / SendGrid / Resend)
                   </button>
                 </div>
               )}
@@ -197,6 +235,35 @@ export const Login = ({ onSwitchToRegister }) => {
               Back to Login
             </button>
           </div>
+
+          {/* Email Server Diagnostics Toggle */}
+          <div style={{ textAlign: "center", marginTop: "1.25rem", paddingTop: "0.75rem", borderTop: "1px dashed var(--border)" }}>
+            <button
+              type="button"
+              onClick={handleCheckDiagnostics}
+              style={{ fontSize: "0.75rem", color: "var(--primary)", background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.3rem", fontWeight: 600 }}
+            >
+              <Wrench size={13} /> {diagLoading ? "Checking email server..." : "Check Email Server Status"}
+            </button>
+          </div>
+
+          {showDiagnostics && diagInfo && (
+            <div style={{
+              marginTop: "0.75rem", padding: "0.85rem", background: "#f8fafc",
+              border: "1px solid var(--border)", borderRadius: "8px", fontSize: "0.75rem", color: "#334155", textAlign: "left"
+            }}>
+              <div style={{ fontWeight: 700, marginBottom: "0.4rem", color: "#0f172a" }}>Server Email Configuration:</div>
+              <div style={{ marginBottom: "0.2rem" }}>• <strong>Email Provider:</strong> {diagInfo.provider}</div>
+              <div style={{ marginBottom: "0.2rem" }}>• <strong>Credentials Set on Server:</strong> {diagInfo.configured ? "✅ Yes" : "❌ No"}</div>
+              <div style={{ marginBottom: "0.2rem" }}>• <strong>Sender Address:</strong> {diagInfo.from_email || "Not configured"}</div>
+              <div style={{ marginBottom: "0.2rem" }}>• <strong>SMTP Host:Port:</strong> {diagInfo.smtp_host}:{diagInfo.smtp_port}</div>
+              {!diagInfo.configured && (
+                <div style={{ marginTop: "0.5rem", color: "#b45309", background: "#fef3c7", padding: "0.5rem", borderRadius: "6px", lineHeight: "1.4" }}>
+                  💡 <strong>To receive real emails:</strong> Add <code>SMTP_USER</code> and <code>SMTP_PASSWORD</code> in your Render Dashboard (Environment tab) or provide a <code>BREVO_API_KEY</code>.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

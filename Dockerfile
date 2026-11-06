@@ -42,5 +42,5 @@ EXPOSE 8000
 # Working directory inside backend
 WORKDIR /app/backend
 
-# Entrypoint: seeds database if empty, then starts Uvicorn
-CMD ["sh", "-c", "python -c 'from app.seed import seed_database; seed_database()' && uvicorn main:app --host 0.0.0.0 --port ${PORT}"]
+# Entrypoint: seeds database if empty, then starts Uvicorn with multi-worker concurrency
+CMD ["sh", "-c", "python -c 'from app.seed import seed_database; seed_database()' && uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 2"]

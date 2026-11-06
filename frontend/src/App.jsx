@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { Navbar } from "./components/Navbar";
 import { CandidateDashboard } from "./pages/CandidateDashboard";
@@ -9,12 +9,37 @@ import { ProfilePage } from "./pages/ProfilePage";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { ChatDrawer } from "./components/ChatDrawer";
+import { EmailConfigModal } from "./components/EmailConfigModal";
 
 function MainApp() {
   const { user, loading } = useAuth();
   const [currentTab, setCurrentTab] = useState("jobs");
   const [authMode, setAuthMode] = useState("login");
   const [chatTargetUser, setChatTargetUser] = useState(null);
+  const [showEmailConfig, setShowEmailConfig] = useState(false);
+  const [emailConfigInitialEmail, setEmailConfigInitialEmail] = useState("");
+
+  // Role-based tab isolation: Recruiters and Admins must NEVER see candidate Jobs/ATS
+  useEffect(() => {
+    if (user?.role === "recruiter") {
+      if (currentTab === "jobs" || currentTab === "applications" || currentTab === "admin") {
+        setCurrentTab("recruiter_dashboard");
+      }
+    } else if (user?.role === "admin") {
+      if (currentTab === "jobs" || currentTab === "applications" || currentTab === "recruiter_dashboard") {
+        setCurrentTab("admin");
+      }
+    } else if (user?.role === "candidate") {
+      if (currentTab === "recruiter_dashboard" || currentTab === "admin") {
+        setCurrentTab("jobs");
+      }
+    }
+  }, [user?.role]);
+
+  const handleOpenEmailConfig = (email = "") => {
+    setEmailConfigInitialEmail(email);
+    setShowEmailConfig(true);
+  };
 
   if (loading) {
     return (
@@ -31,14 +56,32 @@ function MainApp() {
   if (!user) {
     return (
       <div className="app-container">
-        <Navbar currentTab={authMode} setCurrentTab={setCurrentTab} onOpenChatWith={setChatTargetUser} />
+        <Navbar 
+          currentTab={authMode} 
+          setCurrentTab={setCurrentTab} 
+          onOpenChatWith={setChatTargetUser} 
+          onOpenEmailConfig={() => handleOpenEmailConfig("")}
+        />
         <main className="main-content">
           {authMode === "login" ? (
-            <Login onSwitchToRegister={() => setAuthMode("register")} />
+            <Login 
+              onSwitchToRegister={() => setAuthMode("register")} 
+              onOpenEmailConfig={handleOpenEmailConfig}
+            />
           ) : (
-            <Register onSwitchToLogin={() => setAuthMode("login")} />
+            <Register 
+              onSwitchToLogin={() => setAuthMode("login")} 
+              onOpenEmailConfig={handleOpenEmailConfig}
+            />
           )}
         </main>
+
+        {showEmailConfig && (
+          <EmailConfigModal 
+            initialEmail={emailConfigInitialEmail} 
+            onClose={() => setShowEmailConfig(false)} 
+          />
+        )}
       </div>
     );
   }
@@ -49,30 +92,35 @@ function MainApp() {
         currentTab={currentTab} 
         setCurrentTab={setCurrentTab} 
         onOpenChatWith={setChatTargetUser} 
+        onOpenEmailConfig={() => handleOpenEmailConfig(user?.email || "")}
       />
 
       <main className="main-content">
-        {currentTab === "jobs" && (
+        {/* Candidates ONLY: Jobs & ATS interface */}
+        {currentTab === "jobs" && user?.role === "candidate" && (
           <CandidateDashboard 
             onOpenChatWith={setChatTargetUser} 
             activeSubTab="jobs" 
           />
         )}
 
-        {currentTab === "applications" && (
+        {/* Candidates ONLY: My Applications */}
+        {currentTab === "applications" && user?.role === "candidate" && (
           <CandidateDashboard 
             onOpenChatWith={setChatTargetUser} 
             activeSubTab="applications" 
           />
         )}
 
-        {currentTab === "recruiter_dashboard" && (
+        {/* Recruiters Hub */}
+        {currentTab === "recruiter_dashboard" && (user?.role === "recruiter" || user?.role === "admin") && (
           <RecruiterDashboard 
             onOpenChatWith={setChatTargetUser} 
           />
         )}
 
-        {currentTab === "admin" && (
+        {/* Admin Console */}
+        {currentTab === "admin" && user?.role === "admin" && (
           <AdminDashboard />
         )}
 
@@ -94,9 +142,18 @@ function MainApp() {
           onClose={() => setChatTargetUser(null)} 
         />
       )}
+
+      {/* Email Service Configuration Modal */}
+      {showEmailConfig && (
+        <EmailConfigModal 
+          initialEmail={emailConfigInitialEmail || user?.email || ""} 
+          onClose={() => setShowEmailConfig(false)} 
+        />
+      )}
     </div>
   );
 }
+
 
 export default function App() {
   return (

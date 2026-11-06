@@ -78,14 +78,26 @@ export const AuthProvider = ({ children }) => {
   };
 
   const loginAsDemo = async (role) => {
-    if (role === "admin") {
-      return login("admin@recruit.com", "admin123");
-    } else if (role === "recruiter") {
-      return login("recruiter@techcorp.com", "recruiter123");
-    } else if (role === "pending_recruiter") {
-      return login("pending@startup.io", "pending123");
-    } else {
-      return login("student@university.edu", "student123");
+    try {
+      const data = await apiRequest("/api/auth/demo-login", {
+        method: "POST",
+        body: JSON.stringify({ role }),
+      });
+      setAuthToken(data.access_token);
+      setTokenState(data.access_token);
+      setUser(data.user);
+      return data.user;
+    } catch (err) {
+      console.warn("Direct demo-login route fallback:", err.message);
+      if (role === "admin") {
+        return login("admin@recruit.com", "admin123");
+      } else if (role === "recruiter") {
+        return login("recruiter@techcorp.com", "recruiter123");
+      } else if (role === "pending_recruiter") {
+        return login("pending@startup.io", "pending123");
+      } else {
+        return login("student@university.edu", "student123");
+      }
     }
   };
 
