@@ -1,7 +1,13 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env files (backend/.env or project root .env)
+load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR.parent / ".env")
+
 UPLOAD_DIR = BASE_DIR / "uploads" / "resumes"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -17,7 +23,20 @@ DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'recruitment.db
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Ollama local inference endpoint (falls back gracefully if unavailable)
+# AI Service Settings - Best Available APIs:
+# 1. Google Gemini API (Recommended: fast, high quality, generous free tier)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", ""))
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+# 2. OpenAI API
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+# 3. Groq API
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+# 4. Ollama local inference endpoint (falls back gracefully if unavailable)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 
@@ -39,5 +58,4 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "HireSphere Recruitment").strip()
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "").strip()
-
 

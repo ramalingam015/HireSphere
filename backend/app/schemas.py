@@ -17,6 +17,9 @@ class UserBase(BaseModel):
     company: Optional[str] = ""
     location: Optional[str] = ""
     skills: Optional[str] = ""
+    resume_file_path: Optional[str] = None
+    resume_filename: Optional[str] = None
+    resume_text: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -69,6 +72,9 @@ class SkillItem(BaseModel):
     skill_name: str
     is_required: bool = True
 
+    class Config:
+        from_attributes = True
+
 class JobCreate(BaseModel):
     title: str
     company: str
@@ -92,6 +98,13 @@ class JobUpdate(BaseModel):
     is_active: Optional[bool] = None
     skills: Optional[List[SkillItem]] = None
 
+class AIMatchInfo(BaseModel):
+    score: float
+    level: str = "Good Match"
+    matched_skills: List[str] = []
+    missing_skills: List[str] = []
+    reasoning: Optional[str] = ""
+
 class JobOut(BaseModel):
     id: int
     recruiter_id: int
@@ -109,6 +122,7 @@ class JobOut(BaseModel):
     created_at: datetime
     skills: List[SkillItem]
     recruiter: Optional[UserOut] = None
+    ai_match: Optional[AIMatchInfo] = None
 
     class Config:
         from_attributes = True

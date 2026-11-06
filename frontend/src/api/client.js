@@ -158,6 +158,29 @@ function handleMockFallback(endpoint, options) {
     };
   }
 
+  // Profile Resume
+  if (endpoint.startsWith("/api/auth/profile/resume")) {
+    const savedRole = localStorage.getItem("hiresphere_demo_role") || "candidate";
+    const user = mockUsers.find(u => u.role === savedRole) || mockUsers[0];
+    if (method === "POST") {
+      let filename = "Candidate_Resume.pdf";
+      if (options.body instanceof FormData && options.body.get("file")) {
+        filename = options.body.get("file").name;
+      }
+      user.resume_filename = filename;
+      user.resume_file_path = "/uploads/resumes/" + filename;
+      if (!user.skills || user.skills.length < 5) {
+        user.skills = "Python, React, FastAPI, Docker, PostgreSQL, Git";
+      }
+      return user;
+    }
+    if (method === "DELETE") {
+      user.resume_filename = null;
+      user.resume_file_path = null;
+      return user;
+    }
+  }
+
   // Auth diagnostics
   if (endpoint.startsWith("/api/auth/email-diagnostics")) {
     return {
@@ -248,7 +271,29 @@ function handleMockFallback(endpoint, options) {
   if (endpoint.startsWith("/api/jobs/my-postings")) {
     return mockJobs;
   }
-  if (endpoint.startsWith("/api/jobs/ai-search") || endpoint.startsWith("/api/jobs")) {
+  if (endpoint.startsWith("/api/jobs/ai-recommendations") || endpoint.startsWith("/api/jobs/ai-search")) {
+    const savedRole = localStorage.getItem("hiresphere_demo_role") || "candidate";
+    const user = mockUsers.find(u => u.role === savedRole) || mockUsers[0];
+    const userSkills = (user.skills || "Python, React, FastAPI, Docker").toLowerCase().split(",").map(s => s.trim());
+
+    return mockJobs.map(job => {
+      const req = (job.skills || []).filter(s => s.is_required).map(s => s.skill_name);
+      const matched = req.filter(s => userSkills.some(us => s.toLowerCase().includes(us) || us.includes(s.toLowerCase())));
+      const missing = req.filter(s => !userSkills.some(us => s.toLowerCase().includes(us) || us.includes(s.toLowerCase())));
+      const score = Math.round(req.length > 0 ? (matched.length / req.length) * 80 + 15 : 75);
+      return {
+        ...job,
+        ai_match: {
+          score: Math.min(98, Math.max(45, score)),
+          level: score >= 75 ? "High Match" : score >= 50 ? "Good Match" : "Potential Match",
+          matched_skills: matched,
+          missing_skills: missing,
+          reasoning: `High alignment with your skills: ${matched.join(", ") || "General tech skillset"}. Matches ${job.job_type} role.`
+        }
+      };
+    }).sort((a, b) => b.ai_match.score - a.ai_match.score);
+  }
+  if (endpoint.startsWith("/api/jobs")) {
     return mockJobs;
   }
 

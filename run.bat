@@ -1,16 +1,27 @@
 @echo off
+setlocal
 echo =====================================================================
 echo   CS455 Deliverable 1: HireSphere Recruitment & Interview Platform
 echo =====================================================================
 echo.
 
+:: Detect Python executable to avoid WindowsApps dummy alias
+set "PY_CMD=python"
+if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" (
+    set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+    set "PATH=%LOCALAPPDATA%\Programs\Python\Python314;%LOCALAPPDATA%\Programs\Python\Python314\Scripts;%PATH%"
+) else if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" (
+    set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+    set "PATH=%LOCALAPPDATA%\Programs\Python\Python313;%LOCALAPPDATA%\Programs\Python\Python313\Scripts;%PATH%"
+)
+
 cd /d "%~dp0backend"
 
 echo [1/3] Checking Python dependencies...
-python -m pip install -r requirements.txt --quiet
+%PY_CMD% -m pip install -r requirements.txt --quiet
 
 echo [2/3] Initializing Database & Seed Data...
-python -c "from app.seed import seed_database; seed_database()"
+%PY_CMD% -c "from app.seed import seed_database; seed_database()"
 
 echo [3/3] Starting Server at http://localhost:8000 ...
 echo.
@@ -27,6 +38,6 @@ echo =====================================================================
 echo.
 
 start http://localhost:8000
-python main.py
+%PY_CMD% main.py
 
 pause

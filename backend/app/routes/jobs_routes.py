@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -5,10 +6,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 
 from app.database import get_db
-from app.models import Job, JobSkill, User, UserRole, RecruiterStatus
-from app.schemas import JobCreate, JobUpdate, JobOut, SkillItem
+from app.models import Job, JobSkill, User, UserRole, RecruiterStatus, Application
+from app.schemas import JobCreate, JobUpdate, JobOut, SkillItem, AIMatchInfo
 from app.auth import get_current_user, require_approved_recruiter
-from app.services.ai_service import parse_natural_language_search
+from app.services.ai_service import parse_natural_language_search, recommend_and_rank_jobs
+from app.services.ats_service import extract_text_from_pdf
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
@@ -33,7 +35,7 @@ def list_jobs(
         s = f"%{search.strip()}%"
         query = query.filter(or_(Job.title.ilike(s), Job.description.ilike(s), Job.company.ilike(s)))
     if location:
-        query = query.filter(Job.location.ilike(f"%{location.strip()}%"))
+        query = query.filter(or_(Job.location.ilike(f"%{location.strip()}%"), Job.job_type.ilike(f"%{location.strip()}%")))
     if job_type:
         query = query.filter(Job.job_type.ilike(f"%{job_type.strip()}%"))
     if skill:
@@ -41,36 +43,95 @@ def list_jobs(
 
     return query.order_by(Job.created_at.desc()).all()
 
+@router.get("/ai-recommendations", response_model=List[JobOut])
 @router.get("/ai-search", response_model=List[JobOut])
-def ai_job_search(
-    q: str = Query(..., description="Natural language prompt, e.g. 'Looking for remote python react jobs'"),
+def ai_job_search_and_recommendations(
+    q: Optional[str] = Query(None, description="Natural language search prompt, e.g. 'Looking for remote python react jobs'"),
+    search: Optional[str] = Query(None, description="Keyword / title search"),
+    location: Optional[str] = Query(None, description="Location filter"),
+    job_type: Optional[str] = Query(None, description="Job type filter"),
+    skill: Optional[str] = Query(None, description="Required skill filter"),
+    rank_by_resume: bool = Query(True, description="Rank jobs using candidate profile resume and skills"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """FR-SCH-02 / FR-SCH-03: Natural language AI job search."""
-    parsed = parse_natural_language_search(q)
-    
+    """
+    Intelligent AI Job Recommendations and Search.
+    Combines:
+    1. Candidate's profile resume (and past application resumes)
+    2. Candidate's key skills, headline, and bio
+    3. Natural language query intent (via Gemini/OpenAI or NLP extractor)
+    4. Structured search filters (location, job_type, skills)
+    Ranks openings by compatibility and provides transparent match scores and reasoning.
+    """
+    # Base query: active jobs from approved recruiters
     query = db.query(Job).join(User, Job.recruiter_id == User.id)
     if current_user.role != UserRole.ADMIN:
         query = query.filter(User.recruiter_status != RecruiterStatus.SUSPENDED)
         query = query.filter(Job.is_active == True)
 
-    if parsed.get("title"):
-        query = query.filter(Job.title.ilike(f"%{parsed['title']}%"))
-    if parsed.get("company"):
-        query = query.filter(Job.company.ilike(f"%{parsed['company']}%"))
-    if parsed.get("location"):
-        query = query.filter(Job.location.ilike(f"%{parsed['location']}%"))
-    if parsed.get("job_type"):
-        query = query.filter(Job.job_type.ilike(f"%{parsed['job_type']}%"))
-    if parsed.get("skills"):
-        for sk in parsed["skills"]:
-            query = query.filter(Job.skills.any(JobSkill.skill_name.ilike(f"%{sk}%")))
-    if parsed.get("keyword"):
-        k = f"%{parsed['keyword']}%"
-        query = query.filter(or_(Job.title.ilike(k), Job.description.ilike(k), Job.company.ilike(k)))
+    # Apply explicit keyword/search if provided
+    if search:
+        s = f"%{search.strip()}%"
+        query = query.filter(or_(Job.title.ilike(s), Job.description.ilike(s), Job.company.ilike(s)))
 
-    return query.order_by(Job.created_at.desc()).all()
+    # Fetch initial pool of active jobs
+    all_jobs = query.all()
+
+    if not all_jobs:
+        return []
+
+    # Retrieve candidate resume text
+    resume_text = current_user.resume_text or ""
+    if not resume_text and current_user.role == UserRole.CANDIDATE:
+        # Fallback: check if candidate previously uploaded a resume in any job application
+        latest_app = (
+            db.query(Application)
+            .filter(Application.candidate_id == current_user.id)
+            .order_by(Application.created_at.desc())
+            .first()
+        )
+        if latest_app and latest_app.resume_file_path and os.path.exists(latest_app.resume_file_path):
+            try:
+                with open(latest_app.resume_file_path, "rb") as rf:
+                    resume_text = extract_text_from_pdf(rf.read())
+                    # Cache in user profile for faster future recommendations
+                    current_user.resume_text = resume_text
+                    if not current_user.resume_filename:
+                        current_user.resume_filename = latest_app.original_filename
+                    if not current_user.resume_file_path:
+                        current_user.resume_file_path = latest_app.resume_file_path
+                    db.commit()
+            except Exception:
+                pass
+
+    # Score, filter, and rank using AI Service
+    ranked = recommend_and_rank_jobs(
+        jobs=all_jobs,
+        resume_text=resume_text if rank_by_resume else "",
+        candidate_skills=current_user.skills or "",
+        candidate_headline=current_user.headline or "",
+        query=q or "",
+        location_filter=location or "",
+        job_type_filter=job_type or "",
+        skill_filter=skill or ""
+    )
+
+    # Format output with AIMatchInfo attached
+    output = []
+    for item in ranked:
+        job_obj = item["job"]
+        job_out = JobOut.model_validate(job_obj)
+        job_out.ai_match = AIMatchInfo(
+            score=item["match_score"],
+            level=item["match_level"],
+            matched_skills=item["matched_skills"],
+            missing_skills=item["missing_skills"],
+            reasoning=item["reasoning"]
+        )
+        output.append(job_out)
+
+    return output
 
 @router.get("/my-postings", response_model=List[JobOut])
 def list_my_job_postings(
