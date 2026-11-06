@@ -48,6 +48,10 @@ class User(Base):
     is_email_verified = Column(Boolean, default=False)
     email_verification_code = Column(String(10), nullable=True)
     email_verification_expiry = Column(DateTime, nullable=True)
+    # Candidate Resume for Profile & AI Job Matching
+    resume_file_path = Column(String(500), nullable=True)
+    resume_filename = Column(String(255), nullable=True)
+    resume_text = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

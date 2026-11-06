@@ -1,10 +1,15 @@
 import random
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+import os
+import re
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.config import ADMIN_REGISTRATION_KEY
+from app.config import ADMIN_REGISTRATION_KEY, UPLOAD_DIR, MAX_RESUME_SIZE_BYTES
+from app.services.ats_service import extract_text_from_pdf
+from app.services.ai_service import extract_skills_from_text
 from app.models import User, UserRole, RecruiterStatus
 from app.schemas import (
     UserCreate, UserLogin, UserOut, UserProfileUpdate, Token,
@@ -210,3 +215,73 @@ def view_public_profile(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+@router.post("/profile/resume", response_model=UserOut)
+async def upload_profile_resume(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload and parse candidate resume to profile.
+    Extracts text, identifies skills, and stores resume for AI job search & recommendations.
+    """
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="FR-DAT-01 Violation: Resume upload must be in PDF format only."
+        )
+
+    pdf_bytes = await file.read()
+    if len(pdf_bytes) > MAX_RESUME_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"FR-DAT-02 Violation: Resume file size exceeds 5 MB limit ({len(pdf_bytes)} bytes)."
+        )
+
+    try:
+        resume_text = extract_text_from_pdf(pdf_bytes)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Could not extract text from PDF: {str(e)}"
+        )
+
+    # Save to UPLOAD_DIR
+    clean_name = re.sub(r'[^a-zA-Z0-9_\.-]', '_', file.filename)
+    unique_filename = f"user_{current_user.id}_{uuid.uuid4().hex[:8]}_{clean_name}"
+    file_path = UPLOAD_DIR / unique_filename
+    with open(file_path, "wb") as f:
+        f.write(pdf_bytes)
+
+    current_user.resume_file_path = str(file_path)
+    current_user.resume_filename = file.filename
+    current_user.resume_text = resume_text
+
+    # Automatically extract skills to enhance profile
+    extracted = extract_skills_from_text(resume_text)
+    if extracted:
+        existing_skills = [s.strip() for s in (current_user.skills or "").split(",") if s.strip()]
+        existing_lower = {s.lower() for s in existing_skills}
+        for s in extracted:
+            if s.lower() not in existing_lower:
+                existing_skills.append(s)
+        current_user.skills = ", ".join(existing_skills)
+
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+@router.delete("/profile/resume", response_model=UserOut)
+def delete_profile_resume(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Remove candidate resume from profile."""
+    current_user.resume_file_path = None
+    current_user.resume_filename = None
+    current_user.resume_text = None
+    db.commit()
+    db.refresh(current_user)
+    return current_user

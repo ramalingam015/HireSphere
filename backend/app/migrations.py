@@ -23,6 +23,15 @@ def run_auto_migrations():
                 if "email_verification_expiry" not in user_cols:
                     conn.execute(text("ALTER TABLE users ADD COLUMN email_verification_expiry TIMESTAMP"))
                     print("[MIGRATION] Added email_verification_expiry column to users.")
+                if "resume_file_path" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN resume_file_path VARCHAR(500)"))
+                    print("[MIGRATION] Added resume_file_path column to users.")
+                if "resume_filename" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN resume_filename VARCHAR(255)"))
+                    print("[MIGRATION] Added resume_filename column to users.")
+                if "resume_text" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN resume_text TEXT"))
+                    print("[MIGRATION] Added resume_text column to users.")
 
             if "jobs" in existing_tables:
                 job_cols = {c["name"] for c in inspector.get_columns("jobs")}

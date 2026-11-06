@@ -1,8 +1,12 @@
+import base64
+import json
+import hmac
+import hashlib
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
 import bcrypt
 from sqlalchemy.orm import Session
 
@@ -11,6 +15,67 @@ from app.database import get_db
 from app.models import User, UserRole, RecruiterStatus
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+
+# Try to use python-jose or pyjwt if installed; otherwise robust standard library HS256 JWT
+class CustomJWTError(Exception):
+    pass
+
+try:
+    from jose import JWTError as ImportedJWTError, jwt as jose_jwt
+    JWTError = ImportedJWTError
+    _use_jose = True
+except ImportError:
+    try:
+        import jwt as pyjwt
+        class JWTError(Exception):
+            pass
+        jose_jwt = pyjwt
+        _use_jose = True
+    except ImportError:
+        JWTError = CustomJWTError
+        _use_jose = False
+
+def _b64_url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode('utf-8').rstrip('=')
+
+def _b64_url_decode(data: str) -> bytes:
+    padding = 4 - (len(data) % 4)
+    if padding != 4:
+        data += '=' * padding
+    return base64.urlsafe_b64decode(data)
+
+def _builtin_jwt_encode(payload: dict, secret: str) -> str:
+    header = {'alg': 'HS256', 'typ': 'JWT'}
+    h_bytes = _b64_url_encode(json.dumps(header, separators=(',', ':')).encode('utf-8'))
+    # convert any datetime in payload
+    clean_p = {}
+    for k, v in payload.items():
+        if isinstance(v, datetime):
+            clean_p[k] = int(v.timestamp())
+        else:
+            clean_p[k] = v
+    p_bytes = _b64_url_encode(json.dumps(clean_p, separators=(',', ':')).encode('utf-8'))
+    signing_input = f'{h_bytes}.{p_bytes}'.encode('utf-8')
+    sig = _b64_url_encode(hmac.new(secret.encode('utf-8'), signing_input, hashlib.sha256).digest())
+    return f'{h_bytes}.{p_bytes}.{sig}'
+
+def _builtin_jwt_decode(token: str, secret: str) -> dict:
+    parts = token.split('.')
+    if len(parts) != 3:
+        raise CustomJWTError('Invalid token format')
+    h_str, p_str, sig_str = parts
+    signing_input = f'{h_str}.{p_str}'.encode('utf-8')
+    expected_sig = _b64_url_encode(hmac.new(secret.encode('utf-8'), signing_input, hashlib.sha256).digest())
+    if not hmac.compare_digest(sig_str, expected_sig):
+        raise CustomJWTError('Invalid token signature')
+    try:
+        payload = json.loads(_b64_url_decode(p_str).decode('utf-8'))
+    except Exception:
+        raise CustomJWTError('Invalid payload encoding')
+    if 'exp' in payload:
+        if payload['exp'] < time.time():
+            raise CustomJWTError('Token has expired')
+    return payload
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
@@ -29,8 +94,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+
+    if _use_jose:
+        try:
+            return jose_jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        except Exception:
+            pass
+    return _builtin_jwt_encode(to_encode, SECRET_KEY)
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     credentials_exception = HTTPException(
@@ -38,12 +108,21 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: int = payload.get("sub")
-        if user_id is None:
+    payload = None
+    if _use_jose:
+        try:
+            payload = jose_jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        except Exception:
+            pass
+
+    if payload is None:
+        try:
+            payload = _builtin_jwt_decode(token, SECRET_KEY)
+        except Exception:
             raise credentials_exception
-    except JWTError:
+
+    user_id = payload.get("sub")
+    if user_id is None:
         raise credentials_exception
 
     user = db.query(User).filter(User.id == int(user_id)).first()

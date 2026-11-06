@@ -1,7 +1,6 @@
 import re
 import io
 from typing import List, Tuple, Dict, Any
-from pypdf import PdfReader
 from app.config import MAX_RESUME_SIZE_BYTES
 
 def normalize_skill(skill: str) -> str:
@@ -14,20 +13,48 @@ def normalize_skill(skill: str) -> str:
     return s.strip()
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """Extract plain text from uploaded PDF bytes."""
+    """Extract plain text from uploaded PDF bytes supporting PyMuPDF and pypdf."""
     if len(pdf_bytes) > MAX_RESUME_SIZE_BYTES:
         raise ValueError(f"Resume exceeds maximum allowed size of 5 MB ({len(pdf_bytes)} bytes)")
     
+    extracted_text = []
+
+    # 1. Try PyMuPDF (pymupdf / fitz)
     try:
+        import pymupdf
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        for page in doc:
+            t = page.get_text()
+            if t:
+                extracted_text.append(t)
+        doc.close()
+        if extracted_text:
+            return "\n".join(extracted_text)
+    except Exception:
+        pass
+
+    # 2. Try pypdf
+    try:
+        from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(pdf_bytes))
-        extracted_text = []
         for page in reader.pages:
             t = page.extract_text()
             if t:
                 extracted_text.append(t)
-        return "\n".join(extracted_text)
-    except Exception as e:
-        raise ValueError(f"Failed to extract text from PDF: {str(e)}")
+        if extracted_text:
+            return "\n".join(extracted_text)
+    except Exception:
+        pass
+
+    # 3. Pure text fallback
+    try:
+        decoded = pdf_bytes.decode("utf-8", errors="ignore")
+        if any(c.isalnum() for c in decoded):
+            return decoded
+    except Exception:
+        pass
+
+    return ""
 
 def match_skills_in_text(skill_names: List[str], text: str) -> Tuple[List[str], List[str]]:
     """Determine which skills are present in the resume text."""

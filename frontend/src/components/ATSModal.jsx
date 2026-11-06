@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { apiRequest } from "../api/client";
+import { apiRequest, API_BASE } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import { 
   FileText, CheckCircle2, XCircle, AlertCircle, RefreshCw, 
   Send, X, Sparkles, UploadCloud, Info 
@@ -12,6 +13,38 @@ export const ATSModal = ({ job, onClose, onAppliedSuccess }) => {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [showAiFailurePrompt, setShowAiFailurePrompt] = useState(false);
+  const { user } = useAuth();
+
+  const handleUseProfileResume = async () => {
+    if (!user?.resume_file_path && !user?.resume_filename) {
+      setErrorMsg("No resume found in your profile. Please upload one or browse a PDF.");
+      return;
+    }
+    setAnalyzing(true);
+    setErrorMsg("");
+    setShowAiFailurePrompt(false);
+    try {
+      const url = `${API_BASE}/uploads/resumes/${user.resume_file_path.split(/[\\/]/).pop()}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Could not download profile resume.");
+      const blob = await response.blob();
+      const profileFile = new File([blob], user.resume_filename || "Profile_Resume.pdf", { type: "application/pdf" });
+      setFile(profileFile);
+
+      const formData = new FormData();
+      formData.append("job_id", job.id);
+      formData.append("file", profileFile);
+      const result = await apiRequest("/api/applications/pre-analyze-resume", {
+        method: "POST",
+        body: formData,
+      });
+      setAnalysisResult(result);
+    } catch (err) {
+      setErrorMsg(err.message || "Failed to analyze profile resume.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const handleFileChange = (e) => {
     const selected = e.target.files[0];
@@ -203,7 +236,18 @@ export const ATSModal = ({ job, onClose, onAppliedSuccess }) => {
             onChange={handleFileChange}
           />
 
-          <div style={{ display: "flex", justifyContent: "center", gap: "0.6rem" }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+            {user?.resume_filename && !file && (
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm"
+                onClick={handleUseProfileResume}
+                disabled={analyzing}
+                style={{ borderColor: "var(--primary)", color: "var(--primary)", fontWeight: 600 }}
+              >
+                <Sparkles size={14} /> Use Profile Resume ({user.resume_filename})
+              </button>
+            )}
             <label 
               htmlFor="resume-upload-input" 
               className="btn btn-secondary btn-sm"
