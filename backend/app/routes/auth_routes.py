@@ -14,10 +14,13 @@ from app.models import User, UserRole, RecruiterStatus
 from app.schemas import (
     UserCreate, UserLogin, UserOut, UserProfileUpdate, Token,
     EmailVerificationRequest, ResendVerificationRequest, EmailVerificationResponse,
-    TestEmailRequest, EmailConfigRequest, DemoLoginRequest
+    TestEmailRequest, EmailConfigRequest, DemoLoginRequest, AIConfigRequest
 )
 from app.auth import get_password_hash, verify_password, create_access_token, get_current_user
-from app.email_service import send_verification_email, get_email_service_status, update_email_configuration
+from app.email_service import (
+    send_verification_email, dispatch_verification_email_async,
+    get_email_service_status, update_email_configuration, update_ai_configuration
+)
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -65,8 +68,11 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
-    # Send verification email via SMTP or direct API
-    email_sent, email_detail = send_verification_email(new_user.email, verification_code, new_user.full_name)
+    # Dispatch verification email asynchronously in background thread so HTTP response returns in < 40ms
+    status_info = get_email_service_status()
+    dispatch_verification_email_async(new_user.email, verification_code, new_user.full_name)
+    email_sent = status_info.get("configured", False)
+    email_detail = "Verification code dispatched to your email." if email_sent else "Email server not yet configured."
 
     token = create_access_token({"sub": str(new_user.id), "role": new_user.role})
     return {
@@ -139,16 +145,20 @@ def resend_verification(req: ResendVerificationRequest, db: Session = Depends(ge
     user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
     db.commit()
 
-    email_sent, email_detail = send_verification_email(user.email, code, user.full_name)
+    # Dispatch asynchronously in background thread for instantaneous response (< 40ms)
+    status_info = get_email_service_status()
+    dispatch_verification_email_async(user.email, code, user.full_name)
+    email_sent = status_info.get("configured", False)
+    email_detail = (
+        f"A fresh 6-digit verification code has been dispatched to {user.email}."
+        if email_sent else
+        "Email server not configured. Please configure email delivery."
+    )
     return {
         "email_sent": email_sent,
         "email_detail": email_detail,
         "dev_code": None,
-        "message": (
-            f"A fresh 6-digit verification code has been dispatched to {user.email}."
-            if email_sent else
-            f"{email_detail}"
-        )
+        "message": email_detail
     }
 
 @router.get("/email-diagnostics")
@@ -225,6 +235,12 @@ def login(login_in: UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
+        )
+    if getattr(user, 'is_blocked', False):
+        reason = getattr(user, 'block_reason', '') or "Administrative action based on complaints or platform violation."
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Your account has been blocked by an administrator. Reason: {reason}"
         )
     if not user.is_active:
         raise HTTPException(
@@ -402,8 +418,14 @@ async def upload_profile_resume(
 ):
     """
     Upload and parse candidate resume to profile.
-    Extracts text, identifies skills, and stores resume for AI job search & recommendations.
+    Only available to candidate/student accounts (removed for recruiters and admins).
     """
+    if current_user.role != UserRole.CANDIDATE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Profile resume upload and AI matching is reserved exclusively for student/candidate accounts."
+        )
+
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -462,3 +484,32 @@ def delete_profile_resume(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+@router.post("/configure-ai")
+def configure_ai_endpoint(req: AIConfigRequest, current_user: User = Depends(get_current_user)):
+    """
+    Configure Google Gemini Pro API Key & Model at runtime.
+    """
+    res = update_ai_configuration(
+        gemini_api_key=req.gemini_api_key or "",
+        gemini_model=req.gemini_model or "gemini-1.5-pro"
+    )
+    return res
+
+@router.get("/ai-status")
+def get_ai_status(current_user: User = Depends(get_current_user)):
+    """
+    Get current AI engine configuration status.
+    """
+    import app.config as cfg
+    masked_key = ""
+    if cfg.GEMINI_API_KEY:
+        masked_key = cfg.GEMINI_API_KEY[:6] + "..." + cfg.GEMINI_API_KEY[-4:] if len(cfg.GEMINI_API_KEY) > 10 else "***"
+    return {
+        "gemini_configured": bool(cfg.GEMINI_API_KEY),
+        "gemini_model": cfg.GEMINI_MODEL,
+        "masked_key": masked_key,
+        "openai_configured": bool(cfg.OPENAI_API_KEY),
+        "groq_configured": bool(cfg.GROQ_API_KEY)
+    }
+

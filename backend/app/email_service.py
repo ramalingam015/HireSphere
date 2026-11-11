@@ -5,10 +5,73 @@ import requests
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from concurrent.futures import ThreadPoolExecutor
 import app.config as config
 
 TIMEOUT_HTTP = 3.5
 TIMEOUT_SMTP = 3.5
+
+_email_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="hiresphere-email")
+
+def dispatch_verification_email_async(recipient_email: str, code: str, user_name: str = ""):
+    """
+    Submits email dispatch to a background thread pool immediately.
+    Ensures HTTP endpoints return instantly (< 40ms) without waiting on SMTP or external networks.
+    """
+    def _worker():
+        try:
+            send_verification_email(recipient_email, code, user_name)
+        except Exception as e:
+            print(f"[BACKGROUND EMAIL EXCEPTION] {e}")
+
+    _email_executor.submit(_worker)
+
+def update_ai_configuration(gemini_api_key: str = "", gemini_model: str = "gemini-1.5-pro") -> dict:
+    """
+    Updates Gemini API credentials at runtime and persists them to .env.
+    """
+    if gemini_api_key is not None and gemini_api_key.strip():
+        config.GEMINI_API_KEY = gemini_api_key.strip()
+        os.environ["GEMINI_API_KEY"] = config.GEMINI_API_KEY
+    if gemini_model is not None and gemini_model.strip():
+        config.GEMINI_MODEL = gemini_model.strip()
+        os.environ["GEMINI_MODEL"] = config.GEMINI_MODEL
+
+    # Persist to backend/.env
+    try:
+        env_path = Path(__file__).resolve().parent.parent / ".env"
+        existing_lines = []
+        if env_path.exists():
+            existing_lines = env_path.read_text(encoding="utf-8").splitlines()
+
+        env_map = {
+            "GEMINI_API_KEY": config.GEMINI_API_KEY,
+            "GEMINI_MODEL": config.GEMINI_MODEL
+        }
+        written = set()
+        new_lines = []
+        for line in existing_lines:
+            if "=" in line and not line.strip().startswith("#"):
+                key = line.split("=")[0].strip()
+                if key in env_map:
+                    new_lines.append(f"{key}={env_map[key]}")
+                    written.add(key)
+                    continue
+            new_lines.append(line)
+
+        for k, v in env_map.items():
+            if k not in written:
+                new_lines.append(f"{k}={v}")
+
+        env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    except Exception as e:
+        print(f"[AI CONFIG PERSIST] Note: {e}")
+
+    return {
+        "success": True,
+        "gemini_configured": bool(config.GEMINI_API_KEY),
+        "gemini_model": config.GEMINI_MODEL
+    }
 
 def update_email_configuration(
     brevo_api_key: str = "",

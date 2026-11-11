@@ -24,9 +24,9 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # AI Service Settings - Best Available APIs:
-# 1. Google Gemini API (Recommended: fast, high quality, generous free tier)
+# 1. Google Gemini API (Recommended: Gemini Pro / Flash)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", ""))
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-pro")
 
 # 2. OpenAI API
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

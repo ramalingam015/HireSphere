@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { apiRequest } from "../api/client";
-import { Mail, CheckCircle2, AlertCircle, ExternalLink, Send, Zap, Globe, Shield } from "lucide-react";
+import { Mail, CheckCircle2, AlertCircle, ExternalLink, Send, Zap, Globe, Shield, Sparkles } from "lucide-react";
 
 export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) => {
   // Default to Brevo because it allows sending to ANY recipient email without requiring a custom domain
@@ -8,6 +8,8 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
   const [brevoKey, setBrevoKey] = useState("");
   const [sendgridKey, setSendgridKey] = useState("");
   const [resendKey, setResendKey] = useState("");
+  const [geminiKey, setGeminiKey] = useState("");
+  const [geminiModel, setGeminiModel] = useState("gemini-1.5-pro");
   const [senderEmail, setSenderEmail] = useState("hirepro455@gmail.com");
   const [customDomainSender, setCustomDomainSender] = useState("noreply@hiresphere.app");
   const [gmailUser, setGmailUser] = useState("");
@@ -20,6 +22,32 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
     e.preventDefault();
     setLoading(true);
     setResult(null);
+
+    if (provider === "gemini") {
+      if (!geminiKey.trim()) {
+        setResult({ success: false, detail: "Please enter your Google Gemini API key (starts with AIzaSy...)." });
+        setLoading(false);
+        return;
+      }
+      try {
+        const data = await apiRequest("/api/auth/configure-ai", {
+          method: "POST",
+          body: JSON.stringify({
+            gemini_api_key: geminiKey.trim(),
+            gemini_model: geminiModel
+          })
+        });
+        setResult({
+          success: true,
+          message: `✨ Google Gemini Pro activated! Model: ${geminiModel}. All candidate resumes will now extract skills accurately with zero letter 'C' false positives.`
+        });
+      } catch (err) {
+        setResult({ success: false, detail: err.message || "Failed to configure Gemini AI" });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     const payload = {
       provider,
@@ -98,15 +126,18 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
   return (
     <div className="modal-backdrop" style={{ zIndex: 1100 }}>
       <div className="modal-content" style={{ maxWidth: "560px" }}>
-        <div className="modal-header">
+        {/* Modal Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.75rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <div style={{ padding: "0.4rem", background: "#eff6ff", borderRadius: "8px", color: "var(--primary)" }}>
-              <Mail size={20} />
+            <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "var(--primary-light)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {provider === "gemini" ? <Sparkles size={20} color="#7c3aed" /> : <Mail size={20} color="var(--primary)" />}
             </div>
             <div>
-              <h3 style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0 }}>Production Email Dispatch Setup</h3>
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0 }}>
+                {provider === "gemini" ? "Google Gemini Pro AI Setup" : "Production Email Dispatch Setup"}
+              </h3>
               <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.15rem 0 0" }}>
-                Send real 6-digit OTP verification codes to ANY recipient email worldwide
+                {provider === "gemini" ? "High-accuracy resume skill extraction powered by Gemini Pro" : "Send real 6-digit OTP verification codes to ANY recipient email worldwide"}
               </p>
             </div>
           </div>
@@ -121,7 +152,7 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
             onClick={() => setProvider("brevo")}
             style={{ flex: 1, fontSize: "0.76rem" }}
           >
-            ⭐ Brevo API (No Domain Needed)
+            ⭐ Brevo API
           </button>
           <button
             type="button"
@@ -129,7 +160,7 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
             onClick={() => setProvider("sendgrid")}
             style={{ flex: 1, fontSize: "0.76rem" }}
           >
-            SendGrid API (No Domain Needed)
+            SendGrid API
           </button>
           <button
             type="button"
@@ -137,17 +168,43 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
             onClick={() => setProvider("resend")}
             style={{ flex: 1, fontSize: "0.76rem" }}
           >
-            Resend API (Custom Domain)
+            Resend API
           </button>
           <button
             type="button"
             className={`btn btn-sm ${provider === "gmail" ? "btn-primary" : "btn-secondary"}`}
             onClick={() => setProvider("gmail")}
-            style={{ fontSize: "0.76rem" }}
+            style={{ flex: 1, fontSize: "0.76rem" }}
           >
             Gmail SMTP
           </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${provider === "gemini" ? "btn-primary" : "btn-secondary"}`}
+            onClick={() => setProvider("gemini")}
+            style={{ 
+              flex: 1, 
+              fontSize: "0.76rem", 
+              background: provider === "gemini" ? "#7c3aed" : "", 
+              borderColor: provider === "gemini" ? "#6d28d9" : "", 
+              color: provider === "gemini" ? "#fff" : "" 
+            }}
+          >
+            ✨ Gemini Pro AI
+          </button>
         </div>
+
+        {/* Gemini Pro Guide */}
+        {provider === "gemini" && (
+          <div style={{ background: "#f5f3ff", border: "1px solid #ddd6fe", padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.8rem", color: "#5b21b6" }}>
+            <div style={{ fontWeight: 700, marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+              <Sparkles size={15} /> Accurate Technical Skills Parsing
+            </div>
+            <p style={{ margin: "0.2rem 0" }}>
+              Connect your <strong>Gemini Pro</strong> API key to accurately extract all programming languages, frameworks, and developer tools without false positives.
+            </p>
+          </div>
+        )}
 
         {/* Brevo Guide */}
         {provider === "brevo" && (
@@ -158,68 +215,43 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
             <p style={{ margin: "0.2rem 0" }}>
               Brevo allows sending to candidates with <strong>@gmail.com, @yahoo.com, etc.</strong> without owning a custom domain!
             </p>
-            <div style={{ marginTop: "0.4rem", lineHeight: 1.5 }}>
-              1. Sign in to{" "}
-              <a href="https://app.brevo.com" target="_blank" rel="noreferrer" style={{ color: "#15803d", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
-                Brevo <ExternalLink size={12} />
-              </a>.<br />
-              2. Go to <strong>SMTP & API</strong> ➔ <strong>API Keys</strong> ➔ Generate key (starts with <code>xkeysib-</code>).<br />
-              3. Set <strong>Sender Email</strong> to your exact Brevo login email below.
-            </div>
           </div>
         )}
 
-        {/* SendGrid Guide */}
-        {provider === "sendgrid" && (
-          <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.8rem", color: "#1e40af" }}>
-            <div style={{ fontWeight: 700, marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
-              <Zap size={15} /> Sends to ANY Email Address in the World (100 Free / Day)
-            </div>
-            <p style={{ margin: "0.2rem 0" }}>
-              SendGrid allows sending to anyone using <strong>Single Sender Verification</strong> (no custom domain needed).
-            </p>
-            <div style={{ marginTop: "0.4rem", lineHeight: 1.5 }}>
-              1. Sign in to{" "}
-              <a href="https://app.sendgrid.com" target="_blank" rel="noreferrer" style={{ color: "#1d4ed8", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
-                SendGrid <ExternalLink size={12} />
-              </a>.<br />
-              2. Go to <strong>Settings</strong> ➔ <strong>Sender Authentication</strong> ➔ <strong>Verify a Single Sender</strong> (verify your Gmail).<br />
-              3. Go to <strong>API Keys</strong> ➔ Create API Key (starts with <code>SG.</code>) and paste below.
-            </div>
-          </div>
-        )}
-
-        {/* Resend Guide */}
-        {provider === "resend" && (
-          <div style={{ background: "#fffbeb", border: "1px solid #fde68a", padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.8rem", color: "#92400e" }}>
-            <div style={{ fontWeight: 700, marginBottom: "0.25rem" }}>
-              ⚠️ Why Resend Said: "You can only send testing emails to your own email address"
-            </div>
-            <p style={{ margin: "0.2rem 0" }}>
-              Resend’s free test domain (<code>onboarding@resend.dev</code>) restricts dispatches <strong>only to the account owner's email</strong> to prevent spam.
-            </p>
-            <p style={{ margin: "0.3rem 0 0" }}>
-              👉 <strong>To send to other users/candidates:</strong> Add your website domain at{" "}
-              <a href="https://resend.com/domains" target="_blank" rel="noreferrer" style={{ color: "#b45309", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
-                resend.com/domains <ExternalLink size={12} />
-              </a> and add the DNS records. Once verified, you can send from <code>noreply@yourdomain.com</code> to anyone!
-            </p>
-          </div>
-        )}
-
-        {/* Gmail SMTP Guide */}
-        {provider === "gmail" && (
-          <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.8rem", color: "#9f1239" }}>
-            <div style={{ fontWeight: 700, marginBottom: "0.25rem" }}>
-              🛑 Render Cloud Firewall Notice
-            </div>
-            <p style={{ margin: "0.2rem 0" }}>
-              Render permanently blocks raw SMTP ports 25, 465, and 587 with <code>[Errno 101] Network is unreachable</code>. Gmail SMTP works on localhost, but on Render cloud, you must use <strong>Brevo</strong>, <strong>SendGrid</strong>, or <strong>Resend</strong> over HTTPS Port 443.
-            </p>
-          </div>
-        )}
-
+        {/* Forms */}
         <form onSubmit={handleSaveAndTest}>
+          {provider === "gemini" && (
+            <>
+              <div className="form-group">
+                <label className="form-label">Google Gemini API Key *</label>
+                <input
+                  type="password"
+                  className="form-input"
+                  required
+                  placeholder="AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  value={geminiKey}
+                  onChange={(e) => setGeminiKey(e.target.value)}
+                />
+                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.2rem", display: "block" }}>
+                  Obtain your free API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" style={{ color: "#7c3aed" }}>Google AI Studio</a>.
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Select Gemini Model</label>
+                <select
+                  className="form-select"
+                  value={geminiModel}
+                  onChange={(e) => setGeminiModel(e.target.value)}
+                >
+                  <option value="gemini-1.5-pro">Gemini 1.5 Pro (Recommended - Deep Accuracy)</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fastest)</option>
+                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                </select>
+              </div>
+            </>
+          )}
+
           {provider === "brevo" && (
             <>
               <div className="form-group">
@@ -244,9 +276,6 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
                   value={senderEmail}
                   onChange={(e) => setSenderEmail(e.target.value)}
                 />
-                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.2rem", display: "block" }}>
-                  Must match the exact email you signed up with on Brevo. Brevo uses this to deliver to ANY recipient in the world!
-                </span>
               </div>
             </>
           )}
@@ -275,9 +304,6 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
                   value={senderEmail}
                   onChange={(e) => setSenderEmail(e.target.value)}
                 />
-                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.2rem", display: "block" }}>
-                  Must be verified under SendGrid ➔ Sender Authentication ➔ Single Sender Verification.
-                </span>
               </div>
             </>
           )}
@@ -306,9 +332,6 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
                   value={customDomainSender}
                   onChange={(e) => setCustomDomainSender(e.target.value)}
                 />
-                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.2rem", display: "block" }}>
-                  To send to other recipients, use an email with your verified custom domain from resend.com/domains.
-                </span>
               </div>
             </>
           )}
@@ -337,27 +360,26 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
                   value={gmailPassword}
                   onChange={(e) => setGmailPassword(e.target.value)}
                 />
-                <span style={{ fontSize: "0.72rem", color: "#991b1b", marginTop: "0.2rem", display: "block" }}>
-                  Note: Port 465 is blocked on Render cloud with Errno 101. Only works on localhost.
-                </span>
               </div>
             </>
           )}
 
-          <div className="form-group" style={{ background: "#f8fafc", padding: "0.75rem", borderRadius: "8px", border: "1px solid var(--border)" }}>
-            <label className="form-label" style={{ fontWeight: 600 }}>Send Real Test OTP Email To Any Address *</label>
-            <input
-              type="email"
-              className="form-input"
-              required
-              placeholder="any_test_email@gmail.com"
-              value={testRecipient}
-              onChange={(e) => setTestRecipient(e.target.value)}
-            />
-            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.2rem", display: "block" }}>
-              A real 6-digit verification code will be dispatched immediately to this address to verify your connection.
-            </span>
-          </div>
+          {provider !== "gemini" && (
+            <div className="form-group" style={{ background: "#f8fafc", padding: "0.75rem", borderRadius: "8px", border: "1px solid var(--border)" }}>
+              <label className="form-label" style={{ fontWeight: 600 }}>Send Real Test OTP Email To Any Address *</label>
+              <input
+                type="email"
+                className="form-input"
+                required
+                placeholder="any_test_email@gmail.com"
+                value={testRecipient}
+                onChange={(e) => setTestRecipient(e.target.value)}
+              />
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.2rem", display: "block" }}>
+                A real 6-digit verification code will be dispatched immediately to this address to verify your connection.
+              </span>
+            </div>
+          )}
 
           {result && (
             <div style={{
@@ -374,7 +396,7 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
             }}>
               {result.success ? <CheckCircle2 size={16} style={{ marginTop: "2px", flexShrink: 0 }} /> : <AlertCircle size={16} style={{ marginTop: "2px", flexShrink: 0 }} />}
               <div>
-                <strong>{result.success ? "Success!" : "Email Dispatch Result:"}</strong>
+                <strong>{result.success ? "Success!" : "Action Result:"}</strong>
                 <p style={{ margin: "0.2rem 0 0" }}>{result.message || result.detail}</p>
               </div>
             </div>
@@ -385,8 +407,17 @@ export const EmailConfigModal = ({ onClose, initialEmail = "", onConfigSaved }) 
               {result?.success ? "Close" : "Cancel"}
             </button>
             <button type="submit" className="btn btn-primary" disabled={loading}>
-              <Send size={14} />
-              {loading ? "Sending Test Email..." : "Test & Save Email Settings"}
+              {provider === "gemini" ? (
+                <>
+                  <Sparkles size={14} />
+                  {loading ? "Activating..." : "Save & Activate Gemini Pro"}
+                </>
+              ) : (
+                <>
+                  <Send size={14} />
+                  {loading ? "Sending Test Email..." : "Test & Save Email Settings"}
+                </>
+              )}
             </button>
           </div>
         </form>

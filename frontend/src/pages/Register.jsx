@@ -412,7 +412,7 @@ export const Register = ({ onSwitchToLogin, onOpenEmailConfig }) => {
                 placeholder="Enter system admin passcode"
               />
               <p style={{ fontSize: "0.72rem", color: "#b91c1c", marginTop: "0.3rem" }}>
-                🔑 Authorized system administrator key required. (Evaluation Key: <code>CS455-ADMIN-2026</code>)
+                🔒 Authorized system administrator passcode required. Contact the platform administrator if you do not have one.
               </p>
             </div>
           )}

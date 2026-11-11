@@ -61,6 +61,8 @@ class UserOut(UserBase):
     id: int
     recruiter_status: str
     is_active: bool
+    is_blocked: bool = False
+    block_reason: Optional[str] = ""
     is_email_verified: bool = False
     created_at: datetime
 
@@ -301,5 +303,47 @@ class EmailConfigRequest(BaseModel):
 
 class ResetDatabaseRequest(BaseModel):
     admin_secret_key: str
+
+class UserBlockRequest(BaseModel):
+    is_blocked: bool
+    reason: Optional[str] = ""
+
+class ComplaintCreate(BaseModel):
+    category: str = "complaint"  # complaint, suggestion, spam_user, spam_recruiter, website_issue, other
+    target_user_id: Optional[int] = None
+    target_job_id: Optional[int] = None
+    subject: str
+    description: str
+
+class ComplaintOut(BaseModel):
+    id: int
+    user_id: int
+    category: str
+    target_user_id: Optional[int] = None
+    target_job_id: Optional[int] = None
+    subject: str
+    description: str
+    status: str
+    admin_notes: Optional[str] = ""
+    created_at: datetime
+    updated_at: datetime
+    reporter_name: Optional[str] = None
+    reporter_email: Optional[str] = None
+    reporter_role: Optional[str] = None
+    target_user_name: Optional[str] = None
+    target_user_email: Optional[str] = None
+    target_user_role: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class ComplaintActionRequest(BaseModel):
+    status: str  # RESOLVED, DISMISSED, PENDING
+    admin_notes: Optional[str] = ""
+
+class AIConfigRequest(BaseModel):
+    gemini_api_key: Optional[str] = None
+    gemini_model: Optional[str] = "gemini-1.5-pro"
+
 
 

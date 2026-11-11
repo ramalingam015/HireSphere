@@ -2,6 +2,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base
@@ -10,7 +11,8 @@ from app.migrations import run_auto_migrations
 from app.seed import seed_database
 from app.routes import (
     auth_routes, jobs_routes, applications_routes,
-    interviews_routes, networking_routes, admin_routes
+    interviews_routes, networking_routes, admin_routes,
+    complaints_routes
 )
 
 @asynccontextmanager
@@ -40,6 +42,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# GZip compression to dramatically speed up payload delivery on cloud hosting
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 # Mount uploaded resume files
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR.parent)), name="uploads")
@@ -51,6 +56,7 @@ app.include_router(applications_routes.router)
 app.include_router(interviews_routes.router)
 app.include_router(networking_routes.router)
 app.include_router(admin_routes.router)
+app.include_router(complaints_routes.router)
 
 from pathlib import Path
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"

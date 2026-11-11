@@ -297,50 +297,6 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
           </div>
         )}
 
-        {/* 1-Click Demo Login Box */}
-        <div style={{
-          background: "#f8fafc", border: "1px dashed var(--border)",
-          borderRadius: "8px", padding: "0.85rem", marginBottom: "1.25rem"
-        }}>
-          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--primary)", display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.5rem" }}>
-            <Sparkles size={13} /> 1-CLICK INSTANT DEMO ROLES:
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem" }}>
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-sm"
-              onClick={() => loginAsDemo("candidate")}
-              style={{ fontSize: "0.75rem" }}
-            >
-              🎓 Student
-            </button>
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-sm"
-              onClick={() => loginAsDemo("recruiter")}
-              style={{ fontSize: "0.75rem" }}
-            >
-              👔 Recruiter
-            </button>
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-sm"
-              onClick={() => loginAsDemo("pending_recruiter")}
-              style={{ fontSize: "0.75rem" }}
-            >
-              ⏳ Pending Recruiter
-            </button>
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-sm"
-              onClick={() => loginAsDemo("admin")}
-              style={{ fontSize: "0.75rem" }}
-            >
-              🛡️ Admin
-            </button>
-          </div>
-        </div>
-
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label className="form-label">Email Address</label>

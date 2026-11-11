@@ -6,64 +6,11 @@ import {
   Sparkles, CheckCircle2, Clock, AlertTriangle 
 } from "lucide-react";
 
-export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenEmailConfig }) => {
-  const { user, logout, loginAsDemo } = useAuth();
+export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenEmailConfig, onOpenComplaints }) => {
+  const { user, logout } = useAuth();
 
   return (
     <header className="navbar">
-      {/* Demo Switcher Quick Bar */}
-      <div className="demo-bar">
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <Sparkles size={14} style={{ color: "#38bdf8" }} />
-          <span>CS455 Deliverable 1 - Quick Role Switcher:</span>
-        </div>
-        <div className="demo-buttons">
-          <button 
-            className="btn-demo" 
-            onClick={() => loginAsDemo("candidate")}
-            title="Switch to Student / Candidate account"
-          >
-            🎓 Student (Alex Rivera)
-          </button>
-          <button 
-            className="btn-demo" 
-            onClick={() => loginAsDemo("recruiter")}
-            title="Switch to Approved Recruiter account"
-          >
-            👔 Recruiter (CloudScale Systems)
-          </button>
-          <button 
-            className="btn-demo" 
-            onClick={() => loginAsDemo("pending_recruiter")}
-            title="Switch to Pending Recruiter account (tests Admin approval flow)"
-          >
-            ⏳ Pending Recruiter
-          </button>
-          <button 
-            className="btn-demo" 
-            onClick={() => loginAsDemo("admin")}
-            title="Switch to Admin account"
-          >
-            🛡️ Admin Portal
-          </button>
-          <button 
-            className="btn-demo" 
-            onClick={() => {
-              const current = getApiBase();
-              const next = window.prompt("Enter your Backend API URL (e.g. https://hiresphere.onrender.com or http://localhost:8000). Leave blank for same-origin / demo fallback:", current || "");
-              if (next !== null) {
-                setApiBase(next);
-                window.location.reload();
-              }
-            }}
-            title="Configure backend server URL for GitHub Pages"
-            style={{ background: "#0369a1", borderColor: "#0284c7" }}
-          >
-            ⚙️ Backend: {getApiBase() ? "Custom API" : "Auto / Demo"}
-          </button>
-        </div>
-      </div>
-
       <div className="navbar-inner">
         <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
           <button 
@@ -159,6 +106,18 @@ export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenEmailC
                   {user.full_name}
                 </button>
               </div>
+
+              {onOpenComplaints && user?.role !== "admin" && (
+                <button 
+                  className="btn btn-secondary btn-sm"
+                  onClick={onOpenComplaints}
+                  title="Submit a complaint, suggestion, or report spam"
+                  style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
+                >
+                  <MessageSquare size={13} />
+                  <span>Complaints & Suggestions</span>
+                </button>
+              )}
 
               <button 
                 className="btn btn-secondary btn-sm"

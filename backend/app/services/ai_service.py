@@ -70,17 +70,27 @@ def is_ollama_online() -> bool:
     return _ollama_cache["alive"]
 
 def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]:
-    """Call Google Gemini 2.0 / 1.5 Flash API (Best available API)."""
-    if not GEMINI_API_KEY:
+    """Call Google Gemini API (prioritizing Gemini Pro / user-selected model)."""
+    # Fetch dynamically from config in case updated at runtime
+    import app.config as cfg
+    api_key = cfg.GEMINI_API_KEY
+    if not api_key:
         return None
 
-    models = [GEMINI_MODEL, "gemini-2.0-flash", "gemini-1.5-flash"]
-    for model_name in dict.fromkeys(models):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+    # Priority list of models: User prefers Gemini Pro, followed by flash models
+    model_candidates = []
+    if cfg.GEMINI_MODEL:
+        model_candidates.append(cfg.GEMINI_MODEL)
+    model_candidates.extend(["gemini-1.5-pro", "gemini-2.0-flash", "gemini-1.5-flash"])
+    # Unique candidates in order
+    models = list(dict.fromkeys(model_candidates))
+
+    for model_name in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0.2,
+                "temperature": 0.1,
                 "responseMimeType": "application/json"
             }
         }
@@ -88,7 +98,7 @@ def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]
             payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
         try:
-            resp = requests.post(url, json=payload, timeout=6.0)
+            resp = requests.post(url, json=payload, timeout=8.0)
             if resp.status_code == 200:
                 data = resp.json()
                 candidates = data.get("candidates", [])
@@ -213,28 +223,64 @@ def call_best_ai_json(prompt: str, system_prompt: str = "") -> Optional[Dict[str
     return None
 
 def extract_skills_from_text(text: str) -> List[str]:
-    """Extract technical skills from resume text using AI or curated taxonomy."""
+    """
+    Extract technical skills from resume text using Gemini Pro (or other LLMs)
+    with strict accuracy protections against false positives (e.g. 'C' letter bugs).
+    """
     if not text or not text.strip():
         return []
 
-    if GEMINI_API_KEY or OPENAI_API_KEY or GROQ_API_KEY:
+    import app.config as cfg
+    has_llm = bool(cfg.GEMINI_API_KEY or OPENAI_API_KEY or GROQ_API_KEY or is_ollama_online())
+
+    if has_llm:
         prompt = (
-            f"Extract all technical skills, programming languages, databases, frameworks, and developer tools "
-            f"from this resume snippet. Return JSON format: {{\"skills\": [\"Skill1\", \"Skill2\"]}}.\n\n"
-            f"Resume Text:\n{text[:4000]}"
+            "Analyze the following resume text and extract ALL programming languages, frameworks, "
+            "libraries, databases, cloud platforms, DevOps tools, and technical skills possessed by the candidate.\n\n"
+            "STRICT ACCURACY RULES:\n"
+            "1. DO NOT extract or output 'C' or 'C Language' unless the resume explicitly mentions "
+            "'C language', 'C programming', 'ANSI C', or 'C/C++'.\n"
+            "2. DO NOT treat single letter section titles (e.g., 'C.', 'Section C'), bullet points, "
+            "middle initials, or letter grades ('Grade C') as the C programming language.\n"
+            "3. Normalize variations to standard professional naming (e.g., 'React' or 'React.js', 'PostgreSQL', 'Docker').\n"
+            "4. Return ONLY a valid JSON object with a single 'skills' key: {\"skills\": [\"Skill1\", \"Skill2\", ...]}\n\n"
+            f"Resume Text:\n{text[:6000]}"
         )
-        res = call_best_ai_json(prompt, system_prompt="You are an expert technical recruiter ATS.")
+        res = call_best_ai_json(prompt, system_prompt="You are an expert technical ATS resume parser.")
         if res and isinstance(res.get("skills"), list):
-            cleaned = [str(s).strip() for s in res["skills"] if str(s).strip()]
+            cleaned = []
+            for s in res["skills"]:
+                val = str(s).strip()
+                if not val:
+                    continue
+                # Double-check guard against single 'C' false positives
+                if val.lower() == "c":
+                    if not re.search(r'\b(?:c\s*programming|c\s*language|ansi\s*c|c\s*\/\s*c\+\+)\b', text, re.IGNORECASE):
+                        continue
+                cleaned.append(val)
             if cleaned:
                 return cleaned
 
+    # Deterministic taxonomy fallback with word boundaries (NEVER loose substring)
     lowered = " " + text.lower() + " "
     found = []
     for skill in POPULAR_TECH_SKILLS:
         s_norm = skill.lower()
+        if s_norm in ("c", "c language"):
+            if re.search(r'\b(?:c\s*programming|c\s*language|ansi\s*c|c\s*\/\s*c\+\+)\b', lowered):
+                if "C" not in found:
+                    found.append("C")
+            continue
+
+        if any(ch in skill for ch in ["+", "#", "."]):
+            sym_pattern = r'(?:^|[\s,;/()|\[\]])' + re.escape(s_norm) + r'(?:$|[\s,;/()|\[\]])'
+            if re.search(sym_pattern, lowered):
+                if skill not in found:
+                    found.append(skill)
+            continue
+
         pattern = r'(?:\b|_)' + re.escape(s_norm) + r'(?:\b|_)'
-        if re.search(pattern, lowered) or s_norm in lowered:
+        if re.search(pattern, lowered):
             canonical = "PostgreSQL" if s_norm in ("postgres", "postgresql") else skill
             if canonical not in found:
                 found.append(canonical)

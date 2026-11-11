@@ -43,6 +43,8 @@ class User(Base):
     location = Column(String(255), default="")
     skills = Column(Text, default="")  # comma separated
     is_active = Column(Boolean, default=True)
+    is_blocked = Column(Boolean, default=False)
+    block_reason = Column(String(255), default="")
     
     # Email verification
     is_email_verified = Column(Boolean, default=False)
@@ -244,3 +246,23 @@ class AuditLog(Base):
     resource_id = Column(String(100), nullable=True)
     details = Column(Text, default="")
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+class Complaint(Base):
+    __tablename__ = "complaints"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # User who filed the complaint / suggestion
+    category = Column(String(50), default="complaint")  # complaint, suggestion, spam_user, spam_recruiter, website_issue, other
+    target_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Optional reported user/recruiter
+    target_job_id = Column(Integer, ForeignKey("jobs.id"), nullable=True)  # Optional reported job
+    subject = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False)
+    status = Column(String(50), default="PENDING")  # PENDING, RESOLVED, DISMISSED
+    admin_notes = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    reporter = relationship("User", foreign_keys=[user_id])
+    target_user = relationship("User", foreign_keys=[target_user_id])
+    target_job = relationship("Job", foreign_keys=[target_job_id])

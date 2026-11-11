@@ -10,6 +10,7 @@ import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { EmailConfigModal } from "./components/EmailConfigModal";
+import { ComplaintsModal } from "./components/ComplaintsModal";
 
 function MainApp() {
   const { user, loading } = useAuth();
@@ -17,6 +18,7 @@ function MainApp() {
   const [authMode, setAuthMode] = useState("login");
   const [chatTargetUser, setChatTargetUser] = useState(null);
   const [showEmailConfig, setShowEmailConfig] = useState(false);
+  const [showComplaintsModal, setShowComplaintsModal] = useState(false);
   const [emailConfigInitialEmail, setEmailConfigInitialEmail] = useState("");
 
   // Role-based tab isolation: Recruiters and Admins must NEVER see candidate Jobs/ATS
@@ -93,6 +95,7 @@ function MainApp() {
         setCurrentTab={setCurrentTab} 
         onOpenChatWith={setChatTargetUser} 
         onOpenEmailConfig={() => handleOpenEmailConfig(user?.email || "")}
+        onOpenComplaints={() => setShowComplaintsModal(true)}
       />
 
       <main className="main-content">
@@ -148,6 +151,13 @@ function MainApp() {
         <EmailConfigModal 
           initialEmail={emailConfigInitialEmail || user?.email || ""} 
           onClose={() => setShowEmailConfig(false)} 
+        />
+      )}
+
+      {/* Complaints, Suggestions & Spam Reports Modal */}
+      {showComplaintsModal && (
+        <ComplaintsModal 
+          onClose={() => setShowComplaintsModal(false)} 
         />
       )}
     </div>
