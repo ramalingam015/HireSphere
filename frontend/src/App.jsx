@@ -41,18 +41,18 @@ function MainApp() {
   // Not logged in view (Guest on Sign In / Register page - navbar is hidden)
   if (!user) {
     return (
-      <div className="app-container">
-        <main className="main-content">
-          {authMode === "login" ? (
-            <Login 
-              onSwitchToRegister={() => setAuthMode("register")} 
-            />
-          ) : (
+      <div className="auth-root-container">
+        {authMode === "login" ? (
+          <Login 
+            onSwitchToRegister={() => setAuthMode("register")} 
+          />
+        ) : (
+          <div className="auth-register-wrapper">
             <Register 
               onSwitchToLogin={() => setAuthMode("login")} 
             />
-          )}
-        </main>
+          </div>
+        )}
       </div>
     );
   }

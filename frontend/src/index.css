@@ -536,15 +536,52 @@ input, select, textarea {
 }
 
 /* Auth Showcase Background & Modern Design System */
-.auth-wrapper {
+.auth-root-container {
+  width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
   position: relative;
-  min-height: calc(100vh - 4.5rem);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem 1rem;
+  background-color: var(--bg-main);
+}
+
+.auth-register-wrapper {
+  width: 100%;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 1.5rem 1rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+}
+
+.auth-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 1.5rem;
   overflow: hidden;
-  border-radius: 24px;
+  box-sizing: border-box;
+}
+
+@media (max-height: 700px), (max-width: 880px) {
+  .auth-root-container,
+  .auth-wrapper {
+    height: auto;
+    min-height: 100vh;
+    max-height: none;
+    overflow-y: auto;
+    padding: 1.5rem 1rem;
+  }
 }
 
 .auth-ambient-bg {
