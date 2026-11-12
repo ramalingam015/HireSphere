@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from pathlib import Path
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base
 from app.config import CORS_ORIGINS
@@ -57,6 +60,14 @@ app.include_router(files_routes.router)
 app.include_router(complaints_routes.router)
 
 
+# Static files for production React frontend (when bundled in Docker or built locally)
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+if not STATIC_DIR.exists():
+    STATIC_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+if STATIC_DIR.exists() and (STATIC_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
 @app.get("/api/health")
 def health_check():
     return {
@@ -68,10 +79,27 @@ def health_check():
 
 @app.get("/")
 def root():
+    if STATIC_DIR.exists():
+        index_file = STATIC_DIR / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
     return {
         "message": "HireSphere API is running. The React frontend is hosted separately (Firebase Hosting).",
         "docs_url": "/docs"
     }
+
+if STATIC_DIR.exists():
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def catch_all(full_path: str):
+        if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+            raise HTTPException(status_code=404, detail="Not found")
+        target_file = STATIC_DIR / full_path
+        if target_file.exists() and target_file.is_file():
+            return FileResponse(target_file)
+        index_file = STATIC_DIR / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404, detail="Not found")
 
 if __name__ == "__main__":
     import uvicorn

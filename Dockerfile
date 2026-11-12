@@ -1,4 +1,14 @@
-# Root Dockerfile for cloud platforms (e.g. Render) building from the repository root.
+# Stage 1: Build React Frontend
+FROM node:20-slim AS frontend-builder
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm install
+
+COPY frontend/ ./
+RUN npm run build
+
+# Stage 2: Python Backend with Static Frontend
 FROM python:3.11-slim
 WORKDIR /app
 
@@ -9,6 +19,7 @@ COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
+COPY --from=frontend-builder /app/frontend/dist ./static
 
 ENV PYTHONUNBUFFERED=1 PORT=8000
 EXPOSE 8000
