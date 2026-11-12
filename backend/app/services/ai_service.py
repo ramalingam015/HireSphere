@@ -196,7 +196,7 @@ def local_heuristic_search_parser(query: str) -> Dict[str, Any]:
     if "remote" in q_lower and "job_type" not in params:
         params["location"] = "Remote"
     elif "in " in q_lower:
-        m = re.search(r'\bin\s+([a-zA-Z\s]+?)(?:\s+with|\s+for|\s+at|$)', query, re.IGNORECASE)
+        m = re.search(r'\bin\s+([a-zA-Z\s]+?)(?:\s+(?:with|for|at|as)|$)', query, re.IGNORECASE)
         if m:
             params["location"] = m.group(1).strip()
 
@@ -207,15 +207,25 @@ def local_heuristic_search_parser(query: str) -> Dict[str, Any]:
     if found_skills:
         params["skills"] = found_skills
 
-    title_terms = ["backend", "frontend", "full stack", "fullstack", "devops", "cloud", "engineer", "developer", "designer", "manager", "architect", "intern", "scientist"]
+    title_terms = [
+        "backend", "frontend", "full stack", "fullstack", "devops", "cloud", "engineer",
+        "developer", "designer", "manager", "architect", "intern", "scientist", "analyst",
+        "lead", "administrator", "specialist", "consultant", "programmer", "tester", "qa"
+    ]
     for term in title_terms:
         if term in q_lower:
             m = re.search(r'([a-zA-Z\s]*' + re.escape(term) + r'[a-zA-Z\s]*)', query, re.IGNORECASE)
             if m:
                 extracted = m.group(1).strip()
-                extracted = re.sub(r'^(looking for|searching for|want a|find a|a|an)\s+', '', extracted, flags=re.I)
+                extracted = re.sub(r'^(looking for|searching for|want a|find a|a|an|jobs for|roles for)\s+', '', extracted, flags=re.I)
                 params["title"] = extracted
                 break
+
+    comp_match = re.search(r'\b(?:at|for|by|with)\s+([A-Z][a-zA-Z0-9_\s]{1,30}?)(?:\s+(?:in|as|on|for)|$)', query)
+    if comp_match:
+        c_name = comp_match.group(1).strip()
+        if c_name.lower() not in [s.lower() for s in params.get("skills", [])] and c_name.lower() not in (params.get("title", "")).lower():
+            params["company"] = c_name
 
     if not params:
         params["keyword"] = query
@@ -276,7 +286,7 @@ def recommend_and_rank_jobs(
     skill_filter: str = "",
     parsed_query: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
-    """Evaluates, scores, and ranks available jobs against a candidate's profile/resume and filters."""
+    """Evaluates, scores, and ranks available jobs against a candidate's prompt, profile/resume, and filters."""
     if not jobs:
         return []
 
@@ -289,10 +299,42 @@ def recommend_and_rank_jobs(
         for s in candidate_skills.split(","):
             if s.strip():
                 cand_skill_list.add(s.strip().lower())
-    # Local taxonomy only: Gemini already extracted profile skills at resume-upload time, and an
-    # extra LLM round-trip on every search would double its latency.
     for s in extract_skills_from_text(combined_resume, use_ai=False):
         cand_skill_list.add(s.lower())
+
+    clean_q = (query or "").strip().lower()
+    has_query = bool(clean_q)
+
+    # Extract target criteria from parsed_query
+    q_title = str(parsed_query.get("title") or "").strip().lower()
+    q_company = str(parsed_query.get("company") or "").strip().lower()
+    q_location = str(location_filter or parsed_query.get("location") or "").strip().lower()
+    q_job_type = str(job_type_filter or parsed_query.get("job_type") or "").strip().lower()
+    q_keyword = str(parsed_query.get("keyword") or "").strip().lower()
+
+    # Requested skills from query & filters
+    requested_skills = set()
+    raw_parsed_skills = parsed_query.get("skills") or []
+    if isinstance(raw_parsed_skills, list):
+        for s in raw_parsed_skills:
+            if str(s).strip():
+                requested_skills.add(str(s).strip().lower())
+    if skill_filter and skill_filter.strip():
+        requested_skills.add(skill_filter.strip().lower())
+    if clean_q:
+        for sk in POPULAR_TECH_SKILLS:
+            if re.search(r'\b' + re.escape(sk.lower()) + r'\b', clean_q):
+                requested_skills.add(sk.lower())
+
+    stop_words = {
+        "i", "me", "my", "we", "our", "you", "a", "an", "the", "and", "or", "in", "on", "at",
+        "to", "for", "with", "about", "against", "between", "into", "through", "during",
+        "before", "after", "above", "below", "from", "up", "down", "is", "are", "was", "were",
+        "be", "been", "being", "have", "has", "had", "do", "does", "did", "looking", "searching",
+        "want", "need", "find", "get", "jobs", "job", "role", "roles", "position", "positions",
+        "opening", "openings", "work", "hire", "hiring", "please", "can", "good", "best"
+    }
+    q_tokens = [w for w in re.split(r'\W+', clean_q) if len(w) >= 2 and w not in stop_words]
 
     results = []
     for job in jobs:
@@ -300,10 +342,10 @@ def recommend_and_rank_jobs(
         pref_skills = [s.skill_name for s in job.skills if not s.is_required]
 
         ats_data = calculate_ats_score(req_skills, pref_skills, combined_resume)
-        matched_req = ats_data["matched_required"]
-        missing_req = ats_data["missing_required"]
-        matched_pref = ats_data["matched_preferred"]
-        missing_pref = ats_data["missing_preferred"]
+        matched_req = list(ats_data["matched_required"])
+        missing_req = list(ats_data["missing_required"])
+        matched_pref = list(ats_data["matched_preferred"])
+        missing_pref = list(ats_data["missing_preferred"])
 
         for mis in list(missing_req):
             if mis.lower() in cand_skill_list:
@@ -326,35 +368,121 @@ def recommend_and_rank_jobs(
         else:
             final_ats_score = (70.0 * (mr / tr)) + (30.0 * (mp / tp))
 
-        relevance_score = final_ats_score
+        job_title_lower = (job.title or "").lower()
+        job_desc_lower = (job.description or "").lower()
+        job_comp_lower = (job.company or "").lower()
+        job_loc_lower = (job.location or "").lower()
+        job_type_lower = (job.job_type or "").lower()
+        job_skill_names = {s.skill_name.lower() for s in job.skills}
+
         reason_points = []
 
-        loc_filt = (location_filter or parsed_query.get("location", "")).lower()
-        if loc_filt and (loc_filt in job.location.lower() or ("remote" in loc_filt and "remote" in (job.location + " " + job.job_type).lower())):
-            relevance_score = min(100.0, relevance_score + 5.0)
-            reason_points.append(f"Matches your location preference ({job.location})")
+        if has_query:
+            query_points = 0.0
+            query_matched = False
 
-        jt_filt = (job_type_filter or parsed_query.get("job_type", "")).lower()
-        if jt_filt and jt_filt in job.job_type.lower():
-            relevance_score = min(100.0, relevance_score + 5.0)
-            reason_points.append(f"Matches {job.job_type} role")
+            # 1. Title match (up to 40 pts)
+            if q_title and (q_title in job_title_lower or job_title_lower in q_title):
+                query_points += 40.0
+                query_matched = True
+                reason_points.append(f"Target role matches '{job.title}'")
+            else:
+                title_matches = [t for t in q_tokens if t in job_title_lower]
+                if title_matches:
+                    query_points += min(35.0, len(title_matches) * 18.0)
+                    query_matched = True
+                    reason_points.append(f"Role title matches search: '{job.title}'")
 
-        if skill_filter and any(skill_filter.lower() in s.skill_name.lower() for s in job.skills):
-            relevance_score = min(100.0, relevance_score + 5.0)
+            # 2. Skills match (up to 40 pts)
+            if requested_skills:
+                matched_q_skills = [
+                    s for s in requested_skills 
+                    if s in job_skill_names or re.search(r'\b' + re.escape(s) + r'\b', job_desc_lower)
+                ]
+                if matched_q_skills:
+                    ratio = len(matched_q_skills) / len(requested_skills)
+                    query_points += ratio * 40.0
+                    query_matched = True
+                    reason_points.append(f"Covers requested skill(s): {', '.join(s.title() for s in matched_q_skills[:3])}")
 
-        q_title = parsed_query.get("title", "")
-        if q_title and q_title.lower() in job.title.lower():
-            relevance_score = min(100.0, relevance_score + 8.0)
-            reason_points.append(f"Target role matches '{job.title}'")
+            # 3. Company match (up to 20 pts)
+            if q_company and q_company in job_comp_lower:
+                query_points += 20.0
+                query_matched = True
+                reason_points.append(f"Matches company '{job.company}'")
+            elif any(t in job_comp_lower for t in q_tokens if len(t) >= 4):
+                query_points += 15.0
+                query_matched = True
+                reason_points.append(f"Matches company '{job.company}'")
 
-        if parsed_query.get("company") and parsed_query["company"].lower() in job.company.lower():
-            relevance_score = min(100.0, relevance_score + 10.0)
-            reason_points.append(f"Matches company '{job.company}'")
+            # 4. Location match (up to 15 pts)
+            if q_location:
+                if q_location in job_loc_lower or ("remote" in q_location and "remote" in (job_loc_lower + " " + job_type_lower)):
+                    query_points += 15.0
+                    query_matched = True
+                    reason_points.append(f"Matches location preference ({job.location})")
 
-        if candidate_headline:
-            cand_head_words = [w.lower() for w in re.split(r'\W+', candidate_headline) if len(w) > 3]
-            if any(w in job.title.lower() for w in cand_head_words):
-                relevance_score = min(100.0, relevance_score + 4.0)
+            # 5. Job type match (up to 15 pts)
+            if q_job_type:
+                if q_job_type in job_type_lower or (q_job_type == "remote" and "remote" in (job_loc_lower + " " + job_type_lower)):
+                    query_points += 15.0
+                    query_matched = True
+                    reason_points.append(f"Matches {job.job_type} role")
+
+            # 6. Keyword / Description match (up to 15 pts)
+            if q_keyword and (q_keyword in job_desc_lower or q_keyword in job_title_lower):
+                query_points += 15.0
+                query_matched = True
+                reason_points.append(f"Matches topic '{q_keyword}'")
+            else:
+                desc_matches = [t for t in q_tokens if t in job_desc_lower and t not in job_title_lower]
+                if desc_matches:
+                    query_points += min(15.0, len(desc_matches) * 5.0)
+                    query_matched = True
+
+            query_score = min(100.0, query_points)
+
+            # In search mode: prompt relevance is primary (75%), resume match is personalization boost (25%)
+            if query_matched:
+                if resume_text.strip():
+                    relevance_score = (query_score * 0.75) + (final_ats_score * 0.25)
+                    if final_ats_score >= 60:
+                        reason_points.append(f"Resume ATS match: {int(final_ats_score)}%")
+                else:
+                    relevance_score = query_score
+            else:
+                # Unrelated to user prompt: heavily demoted
+                relevance_score = min(15.0, final_ats_score * 0.15)
+                reason_points.append("Low relevance to search prompt.")
+
+        else:
+            # Pure recommendations mode (no search query): ATS is primary
+            relevance_score = final_ats_score
+
+            loc_filt = (location_filter or "").lower()
+            if loc_filt and (loc_filt in job_loc_lower or ("remote" in loc_filt and "remote" in (job_loc_lower + " " + job_type_lower))):
+                relevance_score = min(100.0, relevance_score + 8.0)
+                reason_points.append(f"Matches your location preference ({job.location})")
+
+            jt_filt = (job_type_filter or "").lower()
+            if jt_filt and jt_filt in job_type_lower:
+                relevance_score = min(100.0, relevance_score + 8.0)
+                reason_points.append(f"Matches {job.job_type} role")
+
+            if skill_filter and any(skill_filter.lower() in s.skill_name.lower() for s in job.skills):
+                relevance_score = min(100.0, relevance_score + 8.0)
+
+            if candidate_headline:
+                cand_head_words = [w.lower() for w in re.split(r'\W+', candidate_headline) if len(w) > 3]
+                if any(w in job_title_lower for w in cand_head_words):
+                    relevance_score = min(100.0, relevance_score + 5.0)
+
+            if matched_req:
+                reason_points.append(f"Covers required skills: {', '.join(matched_req[:3])}")
+            if matched_pref:
+                reason_points.append(f"Bonus preferred skills: {', '.join(matched_pref[:2])}")
+            if missing_req:
+                reason_points.append(f"Missing required: {', '.join(missing_req[:2])}")
 
         score_val = round(min(100.0, max(0.0, relevance_score)), 1)
         if score_val >= 75.0:
@@ -366,14 +494,6 @@ def recommend_and_rank_jobs(
 
         all_matched = matched_req + matched_pref
         all_missing = missing_req + missing_pref
-
-        if matched_req:
-            reason_points.append(f"Covers required skills: {', '.join(matched_req[:3])}")
-        if matched_pref:
-            reason_points.append(f"Bonus preferred skills: {', '.join(matched_pref[:2])}")
-        if missing_req:
-            reason_points.append(f"Missing required: {', '.join(missing_req[:2])}")
-
         reasoning = " • ".join(reason_points) if reason_points else "Matches general technical profile."
 
         results.append({
