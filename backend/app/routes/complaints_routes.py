@@ -62,6 +62,7 @@ def create_complaint(
     db.commit()
     db.refresh(complaint)
 
+    # Note: target_user_email is omitted (None) to protect user privacy
     return ComplaintOut(
         id=complaint.id,
         user_id=complaint.user_id,
@@ -78,7 +79,7 @@ def create_complaint(
         reporter_email=current_user.email,
         reporter_role=current_user.role,
         target_user_name=target_user.full_name if target_user else None,
-        target_user_email=target_user.email if target_user else None,
+        target_user_email=None,  # Never leak email in user-facing responses
         target_user_role=target_user.role if target_user else None
     )
 
@@ -89,6 +90,7 @@ def get_my_complaints(
 ):
     """
     List complaints and suggestions filed by current user.
+    Never reveals personal emails of reported users.
     """
     complaints = db.query(Complaint).filter(Complaint.user_id == current_user.id).order_by(Complaint.created_at.desc()).all()
     results = []
@@ -110,27 +112,47 @@ def get_my_complaints(
             reporter_email=current_user.email,
             reporter_role=current_user.role,
             target_user_name=target.full_name if target else None,
-            target_user_email=target.email if target else None,
+            target_user_email=None,  # Privacy safe
             target_user_role=target.role if target else None
         ))
     return results
 
-@router.get("/users-list")
-def get_reportable_users(
+@router.get("/search-target")
+def search_reportable_target(
+    q: str = "",
+    role: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Quick list of candidates and recruiters that can be reported for spam.
+    Privacy-safe search for recruiters or users by name or company name.
+    Does NOT dump all users and NEVER exposes personal emails/Gmails.
+    Requires at least 2 characters.
     """
-    users = db.query(User).filter(User.id != current_user.id, User.role != "admin").limit(100).all()
+    clean_q = q.strip()
+    if len(clean_q) < 2:
+        return []
+
+    pattern = f"%{clean_q}%"
+    query = db.query(User).filter(
+        User.id != current_user.id,
+        User.role != "admin",
+        (User.full_name.ilike(pattern) | User.company.ilike(pattern))
+    )
+
+    if role and role in ["recruiter", "candidate"]:
+        query = query.filter(User.role == role)
+
+    matches = query.limit(8).all()
+
+    # Returns ONLY public name and organization — NO emails
     return [
         {
             "id": u.id,
             "full_name": u.full_name,
-            "email": u.email,
             "role": u.role,
-            "company": u.company or ""
+            "company": u.company or "",
+            "location": u.location or ""
         }
-        for u in users
+        for u in matches
     ]

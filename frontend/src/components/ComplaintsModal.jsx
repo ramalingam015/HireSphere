@@ -1,26 +1,30 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { apiRequest } from "../api/client";
 import { 
   MessageSquare, AlertTriangle, CheckCircle2, AlertCircle, 
-  Send, X, Sparkles, Clock, ShieldAlert, FileText 
+  Send, X, Sparkles, Clock, ShieldAlert, FileText, Search,
+  Building, User, Check, RefreshCw
 } from "lucide-react";
 
 export const ComplaintsModal = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState("submit"); // "submit" or "history"
   const [category, setCategory] = useState("suggestion");
   const [targetUserId, setTargetUserId] = useState("");
+  const [selectedTarget, setSelectedTarget] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+
   const [subject, setSubject] = useState("");
   const [description, setDescription] = useState("");
-  const [usersList, setUsersList] = useState([]);
   const [historyList, setHistoryList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  useEffect(() => {
-    fetchUsersList();
-  }, []);
+  const searchTimeoutRef = useRef(null);
 
   useEffect(() => {
     if (activeTab === "history") {
@@ -28,13 +32,64 @@ export const ComplaintsModal = ({ onClose }) => {
     }
   }, [activeTab]);
 
-  const fetchUsersList = async () => {
-    try {
-      const data = await apiRequest("/api/complaints/users-list");
-      setUsersList(data || []);
-    } catch (err) {
-      console.warn("Could not fetch user list:", err);
+  const handleCategoryChange = (newCat) => {
+    setCategory(newCat);
+    // Reset any target selection when switching category
+    setSelectedTarget(null);
+    setTargetUserId("");
+    setSearchQuery("");
+    setSearchResults([]);
+    setShowDropdown(false);
+  };
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    setSearchQuery(val);
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
     }
+
+    if (val.trim().length < 2) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    setShowDropdown(true);
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const targetRole = category === "spam_recruiter" ? "recruiter" : "candidate";
+        const results = await apiRequest(
+          `/api/complaints/search-target?q=${encodeURIComponent(val.trim())}&role=${targetRole}`
+        );
+        setSearchResults(results || []);
+      } catch (err) {
+        console.warn("Target search error:", err);
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+  };
+
+  const handleSelectTarget = (target) => {
+    setSelectedTarget(target);
+    setTargetUserId(target.id);
+    setSearchQuery("");
+    setSearchResults([]);
+    setShowDropdown(false);
+  };
+
+  const handleClearTarget = () => {
+    setSelectedTarget(null);
+    setTargetUserId("");
+    setSearchQuery("");
+    setSearchResults([]);
+    setShowDropdown(false);
   };
 
   const fetchHistory = async () => {
@@ -70,6 +125,7 @@ export const ComplaintsModal = ({ onClose }) => {
       setSubject("");
       setDescription("");
       setTargetUserId("");
+      setSelectedTarget(null);
       setTimeout(() => {
         fetchHistory();
         setActiveTab("history");
@@ -83,6 +139,7 @@ export const ComplaintsModal = ({ onClose }) => {
   };
 
   const isSpamReport = category === "spam_recruiter" || category === "spam_user";
+  const searchRoleLabel = category === "spam_recruiter" ? "Recruiter" : "Candidate / User";
 
   return (
     <div className="modal-backdrop" style={{ zIndex: 1100 }}>
@@ -142,7 +199,7 @@ export const ComplaintsModal = ({ onClose }) => {
                 <button
                   type="button"
                   className={`btn btn-sm ${category === "suggestion" ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => setCategory("suggestion")}
+                  onClick={() => handleCategoryChange("suggestion")}
                   style={{ fontSize: "0.8rem", textAlign: "left" }}
                 >
                   💡 Suggestion / Improvement
@@ -150,7 +207,7 @@ export const ComplaintsModal = ({ onClose }) => {
                 <button
                   type="button"
                   className={`btn btn-sm ${category === "complaint" ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => setCategory("complaint")}
+                  onClick={() => handleCategoryChange("complaint")}
                   style={{ fontSize: "0.8rem", textAlign: "left" }}
                 >
                   ⚠️ Platform Issue / Bug
@@ -158,7 +215,7 @@ export const ComplaintsModal = ({ onClose }) => {
                 <button
                   type="button"
                   className={`btn btn-sm ${category === "spam_recruiter" ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => setCategory("spam_recruiter")}
+                  onClick={() => handleCategoryChange("spam_recruiter")}
                   style={{ fontSize: "0.8rem", textAlign: "left" }}
                 >
                   👔 Report Spam Recruiter
@@ -166,7 +223,7 @@ export const ComplaintsModal = ({ onClose }) => {
                 <button
                   type="button"
                   className={`btn btn-sm ${category === "spam_user" ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => setCategory("spam_user")}
+                  onClick={() => handleCategoryChange("spam_user")}
                   style={{ fontSize: "0.8rem", textAlign: "left" }}
                 >
                   🎓 Report Spam User / Candidate
@@ -174,28 +231,137 @@ export const ComplaintsModal = ({ onClose }) => {
               </div>
             </div>
 
-            {/* Optional target user selection for spam reports */}
+            {/* Targeted search for spam reports (Strictly without revealing full directory or emails) */}
             {isSpamReport && (
-              <div className="form-group" style={{ background: "#fff1f2", padding: "0.75rem", borderRadius: "8px", border: "1px solid #fecaca" }}>
-                <label className="form-label" style={{ color: "#991b1b" }}>
-                  Select Reported Person (Optional if name is in description)
+              <div className="form-group" style={{ background: "#fff1f2", padding: "0.85rem", borderRadius: "8px", border: "1px solid #fecaca" }}>
+                <label className="form-label" style={{ color: "#991b1b", display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.4rem" }}>
+                  <ShieldAlert size={16} /> Search & Select {searchRoleLabel}
                 </label>
-                <select
-                  className="form-select"
-                  value={targetUserId}
-                  onChange={(e) => setTargetUserId(e.target.value)}
-                >
-                  <option value="">-- Choose specific user / recruiter from directory --</option>
-                  {usersList
-                    .filter((u) => category === "spam_recruiter" ? u.role === "recruiter" : u.role === "candidate")
-                    .map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.full_name} ({u.email}) {u.company ? `• ${u.company}` : ""}
-                      </option>
-                    ))}
-                </select>
-                <span style={{ fontSize: "0.72rem", color: "#b91c1c", marginTop: "0.3rem", display: "block" }}>
-                  Administrators will review this report and can block or suspend the offender.
+
+                {selectedTarget ? (
+                  // Selected person confirmed card
+                  <div style={{ 
+                    background: "#ffffff", 
+                    border: "1px solid #fca5a5", 
+                    borderRadius: "6px", 
+                    padding: "0.65rem 0.85rem", 
+                    display: "flex", 
+                    alignItems: "center", 
+                    justifyContent: "space-between",
+                    marginTop: "0.25rem"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                      <div style={{ background: "#fee2e2", color: "#b91c1c", width: "32px", height: "32px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "0.85rem" }}>
+                        {selectedTarget.full_name?.charAt(0) || "U"}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "#1f2937" }}>
+                          {selectedTarget.full_name}
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                          {selectedTarget.company && (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+                              <Building size={12} /> {selectedTarget.company}
+                            </span>
+                          )}
+                          <span style={{ textTransform: "capitalize", background: "#f1f5f9", padding: "1px 6px", borderRadius: "4px" }}>
+                            {selectedTarget.role}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleClearTarget}
+                      className="btn btn-sm btn-secondary"
+                      style={{ fontSize: "0.75rem", padding: "0.25rem 0.6rem" }}
+                      title="Clear and search someone else"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  // Search box with privacy-preserving live autocomplete
+                  <div style={{ position: "relative" }}>
+                    <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                      <Search size={16} color="var(--text-muted)" style={{ position: "absolute", left: "10px" }} />
+                      <input
+                        type="text"
+                        className="form-input"
+                        style={{ paddingLeft: "32px", fontSize: "0.88rem", width: "100%" }}
+                        placeholder={`Type ${category === "spam_recruiter" ? "recruiter name or company" : "user name"} (min 2 letters)...`}
+                        value={searchQuery}
+                        onChange={handleSearchChange}
+                        onFocus={() => searchQuery.trim().length >= 2 && setShowDropdown(true)}
+                      />
+                      {isSearching && (
+                        <RefreshCw size={14} color="var(--text-muted)" className="spin" style={{ position: "absolute", right: "12px", animation: "spin 1s linear infinite" }} />
+                      )}
+                    </div>
+
+                    {/* Autocomplete Dropdown */}
+                    {showDropdown && searchQuery.trim().length >= 2 && (
+                      <div style={{
+                        position: "absolute",
+                        top: "100%",
+                        left: 0,
+                        right: 0,
+                        background: "#ffffff",
+                        border: "1px solid var(--border)",
+                        borderRadius: "8px",
+                        boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
+                        zIndex: 10,
+                        marginTop: "4px",
+                        maxHeight: "220px",
+                        overflowY: "auto"
+                      }}>
+                        {searchResults.length === 0 ? (
+                          <div style={{ padding: "0.75rem", fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center" }}>
+                            {isSearching ? "Searching..." : `No matching ${searchRoleLabel.toLowerCase()} found. You can still describe them in details below.`}
+                          </div>
+                        ) : (
+                          searchResults.map((target) => (
+                            <div
+                              key={target.id}
+                              onClick={() => handleSelectTarget(target)}
+                              style={{
+                                padding: "0.6rem 0.85rem",
+                                borderBottom: "1px solid #f1f5f9",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                transition: "background 0.15s ease"
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = "#ffffff")}
+                            >
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-main)" }}>
+                                  {target.full_name}
+                                </div>
+                                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "2px" }}>
+                                  {target.company && (
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.2rem" }}>
+                                      <Building size={11} /> {target.company}
+                                    </span>
+                                  )}
+                                  {target.location && <span>• 📍 {target.location}</span>}
+                                </div>
+                              </div>
+                              <span style={{ fontSize: "0.72rem", color: "var(--primary)", fontWeight: 600 }}>
+                                Select ↵
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <span style={{ fontSize: "0.72rem", color: "#b91c1c", marginTop: "0.4rem", display: "block" }}>
+                  💡 Select the person you want to report, or leave blank and explain in the description below. Emails are kept strictly private.
                 </span>
               </div>
             )}
