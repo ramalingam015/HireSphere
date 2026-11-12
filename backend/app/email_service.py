@@ -32,9 +32,19 @@ def update_ai_configuration(gemini_api_key: str = "", gemini_model: str = "gemin
     if gemini_api_key is not None and gemini_api_key.strip():
         config.GEMINI_API_KEY = gemini_api_key.strip()
         os.environ["GEMINI_API_KEY"] = config.GEMINI_API_KEY
+        try:
+            import app.services.ai_service as ais
+            ais.GEMINI_API_KEY = config.GEMINI_API_KEY
+        except Exception:
+            pass
     if gemini_model is not None and gemini_model.strip():
         config.GEMINI_MODEL = gemini_model.strip()
         os.environ["GEMINI_MODEL"] = config.GEMINI_MODEL
+        try:
+            import app.services.ai_service as ais
+            ais.GEMINI_MODEL = config.GEMINI_MODEL
+        except Exception:
+            pass
 
     # Persist to backend/.env
     try:

@@ -34,15 +34,10 @@ function MainApp() {
     );
   }
 
-  // Not logged in view (Guest on Sign In / Register page)
+  // Not logged in view (Guest on Sign In / Register page - navbar is hidden)
   if (!user) {
     return (
       <div className="app-container">
-        <Navbar 
-          currentTab={authMode} 
-          setCurrentTab={setCurrentTab} 
-          onOpenChatWith={setChatTargetUser} 
-        />
         <main className="main-content">
           {authMode === "login" ? (
             <Login 
@@ -54,7 +49,6 @@ function MainApp() {
             />
           )}
         </main>
-
       </div>
     );
   }

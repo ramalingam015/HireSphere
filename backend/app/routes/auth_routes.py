@@ -22,7 +22,7 @@ from app.auth import (
     new_verification_code,
 )
 from app.email_service import (
-    send_verification_email, dispatch_verification_email_async,
+    send_verification_email,
     get_email_service_status, update_ai_configuration, user_facing_detail,
 )
 
@@ -76,11 +76,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
-    # Dispatch verification email asynchronously in background thread so HTTP response returns in < 40ms
-    status_info = get_email_service_status()
-    dispatch_verification_email_async(new_user.email, verification_code, new_user.full_name)
-    email_sent = status_info.get("configured", False)
-    email_detail = "Verification code dispatched to your email." if email_sent else "Email server not yet configured."
+    # Send verification email via SMTP or direct API
+    email_sent, email_detail = send_verification_email(new_user.email, verification_code, new_user.full_name)
 
     # No JWT yet: the account must verify its email first (POST /verify-email issues the token).
     return {
@@ -182,15 +179,8 @@ def resend_verification(req: ResendVerificationRequest, db: Session = Depends(ge
     user.email_verification_expiry = datetime.utcnow() + VERIFICATION_TTL
     db.commit()
 
-    # Dispatch asynchronously in background thread for instantaneous response (< 40ms)
-    status_info = get_email_service_status()
-    dispatch_verification_email_async(user.email, code, user.full_name)
-    email_sent = status_info.get("configured", False)
-    email_detail = (
-        f"A fresh 6-digit verification code has been dispatched to {user.email}."
-        if email_sent else
-        "Email server not configured. Please configure email delivery."
-    )
+    # Send verification email via SMTP or direct API
+    email_sent, email_detail = send_verification_email(user.email, code, user.full_name)
     return {
         "email_sent": email_sent,
         "email_detail": user_facing_detail(email_sent, email_detail),

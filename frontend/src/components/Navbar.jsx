@@ -9,6 +9,11 @@ export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenCompla
   const { user, logout } = useAuth();
   const isAuthPage = currentTab === "login" || currentTab === "register";
 
+  // Hide the entire navigation bar on login, register, and unauthenticated screens
+  if (isAuthPage || !user) {
+    return null;
+  }
+
   return (
     <header className="navbar">
       <div className="navbar-inner">
