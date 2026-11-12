@@ -34,7 +34,7 @@ function MainApp() {
     );
   }
 
-  // Not logged in view
+  // Not logged in view (Guest on Sign In / Register page)
   if (!user) {
     return (
       <div className="app-container">
@@ -69,19 +69,11 @@ function MainApp() {
       />
 
       <main className="main-content">
-        {/* Candidates ONLY: Jobs & ATS interface */}
-        {activeTab === "jobs" && user?.role === "candidate" && (
+        {/* Candidates ONLY: Jobs & ATS interface (includes Applications tab inside) */}
+        {(activeTab === "jobs" || activeTab === "applications") && user?.role === "candidate" && (
           <CandidateDashboard 
             onOpenChatWith={setChatTargetUser} 
-            activeSubTab="jobs" 
-          />
-        )}
-
-        {/* Candidates ONLY: My Applications */}
-        {activeTab === "applications" && user?.role === "candidate" && (
-          <CandidateDashboard 
-            onOpenChatWith={setChatTargetUser} 
-            activeSubTab="applications" 
+            activeSubTab={activeTab === "applications" ? "applications" : "jobs"} 
           />
         )}
 
