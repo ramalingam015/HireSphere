@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { ATSModal } from "../components/ATSModal";
@@ -30,26 +30,37 @@ export const CandidateDashboard = ({ onOpenChatWith, activeSubTab = "jobs", onNa
   const [selectedJobForATS, setSelectedJobForATS] = useState(null);
   const [selectedAppForInterview, setSelectedAppForInterview] = useState(null);
 
-  const fetchJobs = async () => {
+  const searchRequestId = useRef(0);
+  const [searchError, setSearchError] = useState("");
+
+  // `overrides` lets callers (e.g. Reset) search with fresh values instead of stale state.
+  const fetchJobs = async (overrides = {}) => {
+    const f = {
+      aiQuery, searchKeyword, locationFilter, jobTypeFilter, skillFilter, rankByResume,
+      ...overrides,
+    };
+    const requestId = ++searchRequestId.current;
     try {
       setLoading(true);
+      setSearchError("");
       const params = new URLSearchParams();
-      if (aiQuery.trim()) params.append("q", aiQuery.trim());
-      if (searchKeyword.trim()) params.append("search", searchKeyword.trim());
-      if (locationFilter.trim()) params.append("location", locationFilter.trim());
-      if (jobTypeFilter) params.append("job_type", jobTypeFilter);
-      if (skillFilter.trim()) params.append("skill", skillFilter.trim());
-      params.append("rank_by_resume", rankByResume ? "true" : "false");
+      if (f.aiQuery.trim()) params.append("q", f.aiQuery.trim());
+      if (f.searchKeyword.trim()) params.append("search", f.searchKeyword.trim());
+      if (f.locationFilter.trim()) params.append("location", f.locationFilter.trim());
+      if (f.jobTypeFilter) params.append("job_type", f.jobTypeFilter);
+      if (f.skillFilter.trim()) params.append("skill", f.skillFilter.trim());
+      params.append("rank_by_resume", f.rankByResume ? "true" : "false");
 
-      const queryStr = params.toString();
-      const endpoint = `/api/jobs/ai-recommendations${queryStr ? `?${queryStr}` : ""}`;
-
-      const data = await apiRequest(endpoint);
+      const data = await apiRequest(`/api/jobs/ai-recommendations?${params.toString()}`);
+      if (requestId !== searchRequestId.current) return; // a newer search superseded this one
       setJobs(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (requestId !== searchRequestId.current) return;
       console.error("Error fetching jobs:", err);
+      setJobs([]);
+      setSearchError(err?.message || "Search failed. Please try again.");
     } finally {
-      setLoading(false);
+      if (requestId === searchRequestId.current) setLoading(false);
     }
   };
 
@@ -82,9 +93,10 @@ export const CandidateDashboard = ({ onOpenChatWith, activeSubTab = "jobs", onNa
     setJobTypeFilter("");
     setSkillFilter("");
     setRankByResume(true);
-    setTimeout(() => {
-      fetchJobs();
-    }, 0);
+    fetchJobs({
+      aiQuery: "", searchKeyword: "", locationFilter: "", jobTypeFilter: "", skillFilter: "",
+      rankByResume: true,
+    });
   };
 
   const handleWithdraw = async (appId) => {
@@ -267,6 +279,14 @@ export const CandidateDashboard = ({ onOpenChatWith, activeSubTab = "jobs", onNa
               <RefreshCw size={24} className="spin" style={{ margin: "0 auto 0.5rem auto", display: "block" }} />
               Scanning jobs & calculating AI recommendation scores...
             </p>
+          ) : searchError ? (
+            <div className="card" style={{ textAlign: "center", padding: "2rem 1rem" }}>
+              <h3>Search could not be completed</h3>
+              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", marginTop: "0.5rem" }}>{searchError}</p>
+              <button className="btn btn-secondary btn-sm" onClick={() => fetchJobs()} style={{ marginTop: "1rem" }}>
+                Try again
+              </button>
+            </div>
           ) : jobs.length === 0 ? (
             <div className="card" style={{ textAlign: "center", padding: "3rem 1rem" }}>
               <h3>No matching jobs found</h3>

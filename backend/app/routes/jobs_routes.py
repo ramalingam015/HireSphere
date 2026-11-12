@@ -66,16 +66,14 @@ def ai_job_search_and_recommendations(
     4. Structured search filters (location, job_type, skills)
     Ranks openings by compatibility and provides transparent match scores and reasoning.
     """
-    # Base query: active jobs from approved recruiters
+    # Base query: active jobs from non-suspended recruiters (newest first, so ties keep recency order).
+    # Keyword / location / job-type / skill filters are applied by the ranking service, which
+    # understands word boundaries, aliases (React.js = React) and "remote" roles.
     query = db.query(Job).join(User, Job.recruiter_id == User.id)
     if current_user.role != UserRole.ADMIN:
         query = query.filter(User.recruiter_status != RecruiterStatus.SUSPENDED)
         query = query.filter(Job.is_active == True)
-
-    # Apply explicit keyword/search if provided
-    if search:
-        s = f"%{search.strip()}%"
-        query = query.filter(or_(Job.title.ilike(s), Job.description.ilike(s), Job.company.ilike(s)))
+    query = query.order_by(Job.created_at.desc())
 
 
     # FR-SCH-02..04: interpret the natural-language query once, validate it, and report anything rejected.
@@ -120,13 +118,14 @@ def ai_job_search_and_recommendations(
     ranked = recommend_and_rank_jobs(
         jobs=all_jobs,
         resume_text=resume_text if rank_by_resume else "",
-        candidate_skills=current_user.skills or "",
-        candidate_headline=current_user.headline or "",
+        candidate_skills=(current_user.skills or "") if rank_by_resume else "",
+        candidate_headline=(current_user.headline or "") if rank_by_resume else "",
         query=q or "",
         location_filter=location or "",
         job_type_filter=job_type or "",
         skill_filter=skill or "",
         parsed_query=parsed_query,
+        keyword_filter=search or "",
     )
 
     # Format output with AIMatchInfo attached
