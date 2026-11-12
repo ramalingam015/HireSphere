@@ -41,6 +41,12 @@ def run_auto_migrations():
                 if "block_reason" not in user_cols:
                     conn.execute(text("ALTER TABLE users ADD COLUMN block_reason VARCHAR(255) DEFAULT ''"))
                     print("[MIGRATION] Added block_reason column to users.")
+                if "password_reset_code" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN password_reset_code VARCHAR(10)"))
+                    print("[MIGRATION] Added password_reset_code column to users.")
+                if "password_reset_expiry" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN password_reset_expiry TIMESTAMP"))
+                    print("[MIGRATION] Added password_reset_expiry column to users.")
 
             if "jobs" in existing_tables:
                 job_cols = {c["name"] for c in inspector.get_columns("jobs")}

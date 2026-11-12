@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { Briefcase, AlertCircle, Mail, CheckCircle2, RefreshCw, Eye, EyeOff } from "lucide-react";
+import { apiRequest } from "../api/client";
+import { Briefcase, AlertCircle, Mail, CheckCircle2, RefreshCw, Eye, EyeOff, KeyRound, ArrowLeft } from "lucide-react";
 
 export const Login = ({ onSwitchToRegister }) => {
   const { login, verifyEmail, resendVerification, sessionMessage } = useAuth();
@@ -18,6 +19,75 @@ export const Login = ({ onSwitchToRegister }) => {
   const [devCode, setDevCode] = useState("");
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifySuccessMsg, setVerifySuccessMsg] = useState("");
+
+  // Forgot password state
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotCode, setForgotCode] = useState("");
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState("");
+  const [forgotStep, setForgotStep] = useState(1); // 1: email, 2: code + new pwd, 3: success
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMsg, setForgotMsg] = useState("");
+  const [forgotError, setForgotError] = useState("");
+
+  const handleRequestResetCode = async (e) => {
+    e.preventDefault();
+    setForgotError("");
+    setForgotMsg("");
+    if (!forgotEmail.trim()) {
+      setForgotError("Please enter your email address.");
+      return;
+    }
+    try {
+      setForgotLoading(true);
+      const res = await apiRequest("/api/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      });
+      setForgotMsg(res.message || "A 6-digit password reset code has been sent to your email.");
+      setForgotStep(2);
+    } catch (err) {
+      setForgotError(err.message || "Failed to send reset code. Please try again.");
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setForgotError("");
+    setForgotMsg("");
+    if (!forgotCode.trim() || forgotCode.trim().length !== 6) {
+      setForgotError("Please enter the 6-digit code received on your email.");
+      return;
+    }
+    if (!forgotNewPassword || forgotNewPassword.length < 6) {
+      setForgotError("Password must be at least 6 characters long.");
+      return;
+    }
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setForgotError("Passwords do not match.");
+      return;
+    }
+    try {
+      setForgotLoading(true);
+      const res = await apiRequest("/api/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({
+          email: forgotEmail.trim(),
+          code: forgotCode.trim(),
+          new_password: forgotNewPassword,
+        }),
+      });
+      setForgotMsg(res.message || "Password reset successfully!");
+      setForgotStep(3);
+    } catch (err) {
+      setForgotError(err.message || "Invalid or expired code. Please try again.");
+    } finally {
+      setForgotLoading(false);
+    }
+  };
 
 
   const handleSubmit = async (e) => {
@@ -211,7 +281,175 @@ export const Login = ({ onSwitchToRegister }) => {
     );
   }
 
-  // 2. Standard Login Form
+  // 2. Forgot / Reset Password View
+  if (showForgotPassword) {
+    return (
+      <div style={{ maxWidth: "440px", margin: "2rem auto" }}>
+        <div className="card">
+          <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
+            <div style={{
+              display: "inline-flex", padding: "0.75rem", borderRadius: "12px",
+              background: "#eff6ff", color: "var(--primary)", marginBottom: "0.75rem"
+            }}>
+              <KeyRound size={28} />
+            </div>
+            <h2 style={{ fontSize: "1.4rem", fontWeight: 700 }}>Reset Password</h2>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+              {forgotStep === 1 && "Enter your registered email to receive a 6-digit recovery code."}
+              {forgotStep === 2 && `Enter the 6-digit code sent to ${forgotEmail} and choose a new password.`}
+              {forgotStep === 3 && "Your password has been reset successfully!"}
+            </p>
+          </div>
+
+          {forgotError && (
+            <div style={{
+              background: "#fee2e2", border: "1px solid #fecaca", color: "#991b1b",
+              padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem",
+              fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.4rem"
+            }}>
+              <AlertCircle size={16} />
+              <span>{forgotError}</span>
+            </div>
+          )}
+
+          {forgotMsg && (
+            <div style={{
+              background: "#d1fae5", border: "1px solid #a7f3d0", color: "#065f46",
+              padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem",
+              fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.4rem"
+            }}>
+              <CheckCircle2 size={16} />
+              <span>{forgotMsg}</span>
+            </div>
+          )}
+
+          {forgotStep === 1 && (
+            <form onSubmit={handleRequestResetCode}>
+              <div className="form-group">
+                <label className="form-label">Email Address</label>
+                <input
+                  type="email"
+                  className="form-input"
+                  required
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  placeholder="your.email@example.com"
+                  autoFocus
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ width: "100%", marginTop: "0.5rem" }}
+                disabled={forgotLoading}
+              >
+                {forgotLoading ? "Sending Code..." : "Send 6-Digit Reset Code"}
+              </button>
+            </form>
+          )}
+
+          {forgotStep === 2 && (
+            <form onSubmit={handleResetPassword}>
+              <div className="form-group">
+                <label className="form-label">6-Digit Verification Code</label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  className="form-input"
+                  style={{ textAlign: "center", letterSpacing: "6px", fontSize: "1.2rem", fontWeight: 700 }}
+                  required
+                  value={forgotCode}
+                  onChange={(e) => setForgotCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="123456"
+                  autoFocus
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">New Password</label>
+                <input
+                  type="password"
+                  className="form-input"
+                  required
+                  minLength={6}
+                  value={forgotNewPassword}
+                  onChange={(e) => setForgotNewPassword(e.target.value)}
+                  placeholder="At least 6 characters"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Confirm New Password</label>
+                <input
+                  type="password"
+                  className="form-input"
+                  required
+                  minLength={6}
+                  value={forgotConfirmPassword}
+                  onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                  placeholder="Re-type new password"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ width: "100%", marginTop: "0.5rem" }}
+                disabled={forgotLoading}
+              >
+                {forgotLoading ? "Resetting Password..." : "Save New Password"}
+              </button>
+
+              <div style={{ textAlign: "center", marginTop: "0.75rem" }}>
+                <button
+                  type="button"
+                  onClick={() => { setForgotStep(1); setForgotError(""); }}
+                  style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}
+                >
+                  Change Email or Resend Code
+                </button>
+              </div>
+            </form>
+          )}
+
+          {forgotStep === 3 && (
+            <div style={{ textAlign: "center", padding: "1rem 0" }}>
+              <p style={{ fontSize: "0.9rem", color: "var(--text-main)", marginBottom: "1.25rem" }}>
+                You can now log in using your updated password.
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ width: "100%" }}
+                onClick={() => {
+                  setEmail(forgotEmail);
+                  setShowForgotPassword(false);
+                  setForgotStep(1);
+                  setForgotError("");
+                  setForgotMsg("");
+                }}
+              >
+                Sign In Now
+              </button>
+            </div>
+          )}
+
+          <div style={{ textAlign: "center", marginTop: "1.25rem", borderTop: "1px solid var(--border)", paddingTop: "1rem" }}>
+            <button
+              type="button"
+              onClick={() => { setShowForgotPassword(false); setForgotStep(1); setForgotError(""); setForgotMsg(""); }}
+              style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", color: "var(--text-muted)", fontSize: "0.85rem" }}
+            >
+              <ArrowLeft size={14} /> Back to Sign In
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Standard Login Form
   return (
     <div style={{ maxWidth: "440px", margin: "2rem auto" }}>
       <div className="card">
@@ -295,6 +533,22 @@ export const Login = ({ onSwitchToRegister }) => {
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "-0.25rem", marginBottom: "0.85rem" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setForgotEmail(email);
+                setShowForgotPassword(true);
+                setForgotStep(1);
+                setForgotError("");
+                setForgotMsg("");
+              }}
+              style={{ fontSize: "0.82rem", color: "var(--primary)", fontWeight: 500 }}
+            >
+              Forgot password?
+            </button>
           </div>
 
           <button 

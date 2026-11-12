@@ -44,6 +44,85 @@ def get_my_connections(
         })
     return results
 
+@router.get("/suggestions")
+def get_connection_suggestions(
+    search: Optional[str] = None,
+    role: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    FR-NET-01: List professionals (candidates and approved recruiters) with their connection status
+    relative to current_user so users can easily discover and connect with others.
+    """
+    conns = db.query(Connection).filter(
+        or_(
+            Connection.requester_id == current_user.id,
+            Connection.receiver_id == current_user.id
+        )
+    ).all()
+
+    conn_map = {}
+    for c in conns:
+        other_id = c.receiver_id if c.requester_id == current_user.id else c.requester_id
+        if c.status == "ACCEPTED":
+            conn_map[other_id] = {"status": "ACCEPTED", "conn_id": c.id}
+        elif c.requester_id == current_user.id and c.status == "PENDING":
+            conn_map[other_id] = {"status": "PENDING_SENT", "conn_id": c.id}
+        elif c.receiver_id == current_user.id and c.status == "PENDING":
+            conn_map[other_id] = {"status": "PENDING_RECEIVED", "conn_id": c.id}
+        elif c.status == "REJECTED":
+            conn_map[other_id] = {"status": "REJECTED", "conn_id": c.id}
+
+    query = db.query(User).filter(
+        User.id != current_user.id,
+        User.is_active == True,
+        User.role != "admin"
+    )
+
+    if getattr(User, "is_blocked", None) is not None:
+        query = query.filter(User.is_blocked == False)
+
+    if role and role in ["candidate", "recruiter"]:
+        query = query.filter(User.role == role)
+
+    if search and search.strip():
+        s = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                User.full_name.ilike(s),
+                User.headline.ilike(s),
+                User.company.ilike(s),
+                User.skills.ilike(s)
+            )
+        )
+
+    query = query.filter(
+        or_(
+            User.role == "candidate",
+            and_(User.role == "recruiter", User.recruiter_status == "approved")
+        )
+    )
+
+    users = query.limit(30).all()
+
+    results = []
+    for u in users:
+        conn_info = conn_map.get(u.id, {"status": "NOT_CONNECTED", "conn_id": None})
+        results.append({
+            "id": u.id,
+            "full_name": u.full_name,
+            "role": u.role,
+            "headline": u.headline or "",
+            "company": u.company or "",
+            "location": u.location or "",
+            "skills": u.skills or "",
+            "connection_status": conn_info["status"],
+            "connection_id": conn_info["conn_id"]
+        })
+
+    return results
+
 @router.post("/connect/{user_id}", response_model=ConnectionOut)
 def request_connection(
     user_id: int,

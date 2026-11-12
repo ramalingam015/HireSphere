@@ -25,6 +25,18 @@ def dispatch_verification_email_async(recipient_email: str, code: str, user_name
 
     _email_executor.submit(_worker)
 
+def dispatch_password_reset_email_async(recipient_email: str, code: str, user_name: str = ""):
+    """
+    Submits password reset email dispatch to background thread pool.
+    """
+    def _worker():
+        try:
+            send_password_reset_email(recipient_email, code, user_name)
+        except Exception as e:
+            print(f"[BACKGROUND RESET EMAIL EXCEPTION] {e}")
+
+    _email_executor.submit(_worker)
+
 def update_ai_configuration(gemini_api_key: str = "", gemini_model: str = "gemini-1.5-pro") -> dict:
     """
     Updates Gemini API credentials at runtime and persists them to .env.
@@ -186,7 +198,65 @@ Your HireSphere 6-digit email verification code is: {code}
 
 This code will expire in 24 hours. If you did not request this, please ignore this email.
 """
+    return _send_raw_email(recipient_email, subject, html_content, text_content, code)
 
+
+def send_password_reset_email(recipient_email: str, code: str, user_name: str = "") -> tuple[bool, str]:
+    """
+    Dispatches a 6-digit password reset code to the recipient.
+    """
+    subject = f"{code} is your HireSphere Password Reset Code"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; }}
+        .container {{ max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }}
+        .header {{ background: #2563eb; padding: 24px; text-align: center; color: #ffffff; }}
+        .header h1 {{ margin: 0; font-size: 22px; font-weight: 700; }}
+        .content {{ padding: 32px 24px; color: #334155; line-height: 1.6; }}
+        .code-box {{ background: #eff6ff; border: 2px dashed #93c5fd; border-radius: 10px; padding: 18px; text-align: center; margin: 24px 0; }}
+        .code {{ font-size: 34px; font-weight: 800; letter-spacing: 8px; color: #1d4ed8; font-family: monospace; }}
+        .footer {{ padding: 18px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center; }}
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>HireSphere Account Security</h1>
+        </div>
+        <div class="content">
+          <p>Hello {user_name or 'there'},</p>
+          <p>We received a request to reset your password for your HireSphere account. Please use the following 6-digit reset code:</p>
+          
+          <div class="code-box">
+            <div class="code">{code}</div>
+          </div>
+          
+          <p>This code will expire in <strong>1 hour</strong>. If you did not make this request, you can safely ignore this email; your existing password will remain unchanged.</p>
+        </div>
+        <div class="footer">
+          <p>&copy; 2026 HireSphere Recruitment Platform</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+    text_content = f"""
+Hello {user_name or 'there'},
+
+Your HireSphere 6-digit password reset code is: {code}
+
+This code will expire in 1 hour. If you did not request this, please ignore this email.
+"""
+    return _send_raw_email(recipient_email, subject, html_content, text_content, code)
+
+
+def _send_raw_email(recipient_email: str, subject: str, html_content: str, text_content: str, code: str) -> tuple[bool, str]:
     status = get_email_service_status()
     print(f"[EMAIL SERVICE] Recipient: {recipient_email} | Provider: {status['provider']} | Configured: {status['configured']}")
     if config.APP_ENV != "production":

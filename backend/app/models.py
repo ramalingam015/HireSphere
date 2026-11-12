@@ -51,6 +51,10 @@ class User(Base):
     email_verification_code = Column(String(10), nullable=True)
     email_verification_expiry = Column(DateTime, nullable=True)
     email_verification_attempts = Column(Integer, default=0, nullable=False)
+    
+    # Password Reset
+    password_reset_code = Column(String(10), nullable=True)
+    password_reset_expiry = Column(DateTime, nullable=True)
     # Candidate Resume for Profile & AI Job Matching
     resume_file_path = Column(String(500), nullable=True)
     resume_filename = Column(String(255), nullable=True)

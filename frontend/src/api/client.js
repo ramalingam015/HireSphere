@@ -65,11 +65,17 @@ export const apiRequest = async (endpoint, options = {}) => {
   const base = getApiBase();
   const url = `${base}${endpoint}`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  const signal = options.signal || controller.signal;
+
   try {
     const response = await fetch(url, {
       ...options,
+      signal,
       headers,
     });
+    clearTimeout(timeoutId);
 
     if (response.status === 401 && !endpoint.startsWith("/api/auth/login")) {
       // Session is invalid/expired: drop the token and tell the app to sign out.
@@ -99,6 +105,10 @@ export const apiRequest = async (endpoint, options = {}) => {
 
     return data;
   } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      throw new Error("Server request timed out. If hosted on a free cloud service (like Render), it may be waking up from sleep. Please retry in a few seconds.");
+    }
     if (err.status) {
       // Re-throw genuine HTTP responses from backend (e.g. 400 Bad Request, 403 Forbidden)
       throw err;

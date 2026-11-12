@@ -15,6 +15,7 @@ from app.models import User, UserRole, RecruiterStatus
 from app.schemas import (
     UserCreate, UserLogin, UserOut, UserProfileUpdate, Token,
     EmailVerificationRequest, ResendVerificationRequest, EmailVerificationResponse,
+    ForgotPasswordRequest, ResetPasswordRequest,
     TestEmailRequest, AIConfigRequest
 )
 from app.auth import (
@@ -22,7 +23,7 @@ from app.auth import (
     new_verification_code,
 )
 from app.email_service import (
-    send_verification_email,
+    send_verification_email, send_password_reset_email, dispatch_password_reset_email_async,
     get_email_service_status, update_ai_configuration, user_facing_detail,
 )
 
@@ -190,6 +191,74 @@ def resend_verification(req: ResendVerificationRequest, db: Session = Depends(ge
             if email_sent else
             f"{user_facing_detail(email_sent, email_detail)}"
         )
+    }
+
+@router.post("/forgot-password")
+def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Initiates password reset by dispatching a 6-digit security code to the registered email.
+    """
+    email_clean = req.email.strip().lower()
+    user = db.query(User).filter(User.email.ilike(email_clean)).first()
+    if not user:
+        # Safe response to prevent email harvesting
+        return {
+            "message": "If an account with this email exists, a 6-digit password reset code has been sent.",
+            "email_sent": True
+        }
+
+    code = new_verification_code()
+    user.password_reset_code = code
+    user.password_reset_expiry = datetime.utcnow() + timedelta(hours=1)
+    db.commit()
+
+    email_sent, email_detail = send_password_reset_email(user.email, code, user.full_name)
+    return {
+        "message": f"A 6-digit password reset code has been dispatched to {user.email}.",
+        "email_sent": email_sent,
+        "email_detail": user_facing_detail(email_sent, email_detail)
+    }
+
+@router.post("/reset-password")
+def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Resets the user's password using the verified 6-digit reset code.
+    """
+    email_clean = req.email.strip().lower()
+    user = db.query(User).filter(User.email.ilike(email_clean)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    if not req.new_password or len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long.")
+
+    if not user.password_reset_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active password reset request. Please request a new code."
+        )
+
+    if user.password_reset_expiry and datetime.utcnow() > user.password_reset_expiry:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset code has expired. Please request a new code."
+        )
+
+    if not hmac.compare_digest(user.password_reset_code.strip(), req.code.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid 6-digit reset code. Please check your email and try again."
+        )
+
+    # Success: update hashed password and clear reset code
+    user.hashed_password = get_password_hash(req.new_password)
+    user.password_reset_code = None
+    user.password_reset_expiry = None
+    db.commit()
+
+    return {
+        "message": "Password has been reset successfully! You can now sign in with your new password.",
+        "success": True
     }
 
 @router.get("/email-diagnostics")

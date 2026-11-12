@@ -3,13 +3,16 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { 
   Users, MessageSquare, ThumbsUp, MessageCircle, Send, 
-  Trash2, EyeOff, Shield, PlusCircle, Check 
+  Trash2, EyeOff, Shield, PlusCircle, Check, UserPlus, Search 
 } from "lucide-react";
 
 export const NetworkPage = ({ onOpenChatWith }) => {
   const { user } = useAuth();
   const [posts, setPosts] = useState([]);
   const [connections, setConnections] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionSearch, setSuggestionSearch] = useState("");
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [newPostContent, setNewPostContent] = useState("");
   const [commentInputs, setCommentInputs] = useState({});
   const [loading, setLoading] = useState(true);
@@ -33,13 +36,25 @@ export const NetworkPage = ({ onOpenChatWith }) => {
     }
   };
 
+  const fetchSuggestions = async () => {
+    try {
+      setSuggestionsLoading(true);
+      const data = await apiRequest("/api/networking/suggestions");
+      setSuggestions(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("Could not load connection suggestions:", err);
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
   const connectionWith = (userId) =>
     connections.find((c) => c.other_user?.id === userId);
 
   const handleConnect = async (userId) => {
     try {
       await apiRequest(`/api/networking/connect/${userId}`, { method: "POST" });
-      await fetchConnections();
+      await Promise.all([fetchConnections(), fetchSuggestions()]);
     } catch (err) {
       alert("Could not send connection request: " + err.message);
     }
@@ -48,7 +63,7 @@ export const NetworkPage = ({ onOpenChatWith }) => {
   const respondToRequest = async (connId, action) => {
     try {
       await apiRequest(`/api/networking/connections/${connId}/${action}`, { method: "POST" });
-      await fetchConnections();
+      await Promise.all([fetchConnections(), fetchSuggestions()]);
     } catch (err) {
       alert(`Could not ${action} request: ` + err.message);
     }
@@ -57,7 +72,7 @@ export const NetworkPage = ({ onOpenChatWith }) => {
   const removeConnection = async (connId) => {
     try {
       await apiRequest(`/api/networking/connections/${connId}`, { method: "DELETE" });
-      await fetchConnections();
+      await Promise.all([fetchConnections(), fetchSuggestions()]);
     } catch (err) {
       alert("Could not remove connection: " + err.message);
     }
@@ -68,7 +83,7 @@ export const NetworkPage = ({ onOpenChatWith }) => {
   const accepted = connections.filter((c) => c.status === "ACCEPTED");
 
   useEffect(() => {
-    Promise.all([fetchFeed(), fetchConnections()]).finally(() => setLoading(false));
+    Promise.all([fetchFeed(), fetchConnections(), fetchSuggestions()]).finally(() => setLoading(false));
   }, []);
 
   const handleCreatePost = async (e) => {
@@ -347,6 +362,118 @@ export const NetworkPage = ({ onOpenChatWith }) => {
                   >
                     Remove
                   </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Discover & Connect with Others (FR-NET-01) */}
+        <div className="card" style={{ marginTop: "1.25rem" }}>
+          <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: "0.85rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            <UserPlus size={16} color="var(--primary)" /> Connect with Others
+          </h3>
+
+          <div style={{ position: "relative", marginBottom: "0.75rem" }}>
+            <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)" }} />
+            <input 
+              type="text"
+              placeholder="Search people by name, company..."
+              className="form-input"
+              style={{ paddingLeft: "30px", fontSize: "0.82rem", padding: "0.4rem 0.6rem 0.4rem 30px" }}
+              value={suggestionSearch}
+              onChange={(e) => setSuggestionSearch(e.target.value)}
+            />
+          </div>
+
+          {suggestionsLoading ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", padding: "1rem" }}>
+              Loading suggestions...
+            </p>
+          ) : suggestions.filter(p => {
+              if (!suggestionSearch.trim()) return true;
+              const q = suggestionSearch.toLowerCase();
+              return (
+                p.full_name?.toLowerCase().includes(q) ||
+                p.company?.toLowerCase().includes(q) ||
+                p.headline?.toLowerCase().includes(q) ||
+                p.role?.toLowerCase().includes(q)
+              );
+            }).length === 0 ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", padding: "0.75rem" }}>
+              {suggestionSearch ? "No profiles matching your search." : "No other users available right now."}
+            </p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem", maxHeight: "300px", overflowY: "auto" }}>
+              {suggestions.filter(p => {
+                if (!suggestionSearch.trim()) return true;
+                const q = suggestionSearch.toLowerCase();
+                return (
+                  p.full_name?.toLowerCase().includes(q) ||
+                  p.company?.toLowerCase().includes(q) ||
+                  p.headline?.toLowerCase().includes(q) ||
+                  p.role?.toLowerCase().includes(q)
+                );
+              }).map((person) => (
+                <div 
+                  key={person.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "0.55rem 0.65rem",
+                    borderRadius: "8px",
+                    background: "#f8fafc",
+                    border: "1px solid var(--border)"
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1, marginRight: "0.5rem" }}>
+                    <div style={{ fontWeight: 600, fontSize: "0.85rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {person.full_name}
+                    </div>
+                    <div style={{ fontSize: "0.73rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <span style={{ textTransform: "capitalize", fontWeight: 600 }}>{person.role}</span>
+                      {person.company && ` • ${person.company}`}
+                      {person.headline && ` • ${person.headline}`}
+                    </div>
+                  </div>
+
+                  <div>
+                    {person.connection_status === "ACCEPTED" ? (
+                      <span style={{ fontSize: "0.75rem", color: "var(--success)", fontWeight: 600 }}>
+                        Connected
+                      </span>
+                    ) : person.connection_status === "PENDING_SENT" ? (
+                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontStyle: "italic" }}>
+                        Pending
+                      </span>
+                    ) : person.connection_status === "PENDING_RECEIVED" ? (
+                      <div style={{ display: "flex", gap: "0.25rem" }}>
+                        <button 
+                          className="btn btn-primary btn-sm"
+                          style={{ fontSize: "0.7rem", padding: "0.2rem 0.45rem" }}
+                          onClick={() => respondToRequest(person.connection_id, "accept")}
+                        >
+                          Accept
+                        </button>
+                        <button 
+                          className="btn btn-secondary btn-sm"
+                          style={{ fontSize: "0.7rem", padding: "0.2rem 0.45rem" }}
+                          onClick={() => respondToRequest(person.connection_id, "reject")}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        className="btn btn-primary btn-sm"
+                        style={{ fontSize: "0.72rem", padding: "0.25rem 0.6rem", whiteSpace: "nowrap" }}
+                        onClick={() => handleConnect(person.id)}
+                      >
+                        + Connect
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

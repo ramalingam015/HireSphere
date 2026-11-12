@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { Navbar } from "./components/Navbar";
 import { CandidateDashboard } from "./pages/CandidateDashboard";
@@ -18,6 +18,10 @@ function MainApp() {
   const [authMode, setAuthMode] = useState("login");
   const [chatTargetUser, setChatTargetUser] = useState(null);
   const [showComplaintsModal, setShowComplaintsModal] = useState(false);
+
+  useEffect(() => {
+    document.title = "HireSphere";
+  }, []);
 
   // Role-based tab isolation, derived during render (no flash of a forbidden page):
   // recruiters/admins never see candidate tabs and vice versa. The backend enforces the same rules.

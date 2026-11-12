@@ -36,6 +36,14 @@ class EmailVerificationRequest(BaseModel):
 class ResendVerificationRequest(BaseModel):
     email: str
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
+
 class TestEmailRequest(BaseModel):
     email: str
 
