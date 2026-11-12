@@ -44,14 +44,36 @@ def sanitize_for_ai(text: str) -> str:
     return _PHONE_RE.sub(lambda m: "[phone]" if sum(c.isdigit() for c in m.group(0)) >= 9 else m.group(0), text)
 
 
+def _get_gemini_api_key() -> str:
+    """Return configured Gemini API key, supporting unit-test monkeypatching and runtime admin config."""
+    if GEMINI_API_KEY:
+        return GEMINI_API_KEY
+    try:
+        import app.config as cfg
+        return cfg.GEMINI_API_KEY or ""
+    except Exception:
+        return ""
+
+
+def _get_gemini_model() -> str:
+    """Return configured Gemini model, supporting unit-test monkeypatching and runtime admin config."""
+    if GEMINI_MODEL:
+        return GEMINI_MODEL
+    try:
+        import app.config as cfg
+        return cfg.GEMINI_MODEL or "gemini-flash-lite-latest"
+    except Exception:
+        return "gemini-flash-lite-latest"
+
+
 def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]:
     """Call the Google Gemini API with GEMINI_MODEL, falling back to other Flash models."""
-    import app.config as cfg  # read at call time: the admin can change the key/model at runtime
-    api_key = cfg.GEMINI_API_KEY
+    api_key = _get_gemini_api_key()
     if not api_key:
         return None
 
-    models = [cfg.GEMINI_MODEL, "gemini-flash-lite-latest", "gemini-flash-latest"]
+    model_pref = _get_gemini_model()
+    models = [model_pref, "gemini-flash-lite-latest", "gemini-flash-latest"]
     for model_name in dict.fromkeys(m for m in models if m):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
         headers = {"x-goog-api-key": api_key}  # header, not ?key=, so it never lands in logs
@@ -84,7 +106,7 @@ def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]
 
 def call_best_ai_json(prompt: str, system_prompt: str = "") -> Optional[Dict[str, Any]]:
     """Ask Gemini for a JSON answer. Returns None when there is no key or the call fails."""
-    raw_json = _call_gemini_api(prompt, system_prompt) if GEMINI_API_KEY else None
+    raw_json = _call_gemini_api(prompt, system_prompt) if _get_gemini_api_key() else None
 
     if raw_json:
         try:
@@ -104,8 +126,7 @@ def extract_skills_from_text(text: str, use_ai: bool = True) -> List[str]:
     if not text or not text.strip():
         return []
 
-    import app.config as cfg
-    if use_ai and cfg.GEMINI_API_KEY:
+    if use_ai and _get_gemini_api_key():
         prompt = (
             "Analyze the following resume text and extract ALL programming languages, frameworks, "
             "libraries, databases, cloud platforms, DevOps tools, and technical skills possessed by the candidate.\n\n"
@@ -170,7 +191,7 @@ def parse_search_with_feedback(query: str) -> tuple:
     if not clean_query:
         return {}, []
 
-    if GEMINI_API_KEY:
+    if _get_gemini_api_key():
         prompt = (
             f"You are a job search assistant. Parse this job query into structured JSON with keys: "
             f"\"title\" (string or null), \"company\" (string or null), \"location\" (string or null), "
