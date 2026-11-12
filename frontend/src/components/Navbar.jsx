@@ -7,6 +7,7 @@ import {
 
 export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenComplaints }) => {
   const { user, logout } = useAuth();
+  const isAuthPage = currentTab === "login" || currentTab === "register";
 
   return (
     <header className="navbar">
@@ -25,8 +26,8 @@ export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenCompla
             <span>HireSphere</span>
           </button>
 
-          {/* Navigation Links ONLY shown when user is logged in (hidden on sign-in / guest page) */}
-          {user && (
+          {/* Navigation Links ONLY shown when user is logged in (hidden on sign-in / register pages) */}
+          {user && !isAuthPage && (
             <nav className="nav-links">
               {/* Candidate-only Jobs & ATS tab (Candidate dashboard already includes Applications tab inside) */}
               {user.role === "candidate" && (
