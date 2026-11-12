@@ -200,7 +200,7 @@ export const Login = ({ onSwitchToRegister }) => {
   const renderAuthForm = () => {
     if (needsVerification) {
       return (
-        <div className="card" style={{ boxShadow: "var(--shadow-lg)", borderRadius: "16px", padding: "2rem" }}>
+        <div className="card auth-card-glass" style={{ padding: "2.25rem" }}>
           <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
             <div style={{
               display: "inline-flex", padding: "0.75rem", borderRadius: "12px",
@@ -261,7 +261,7 @@ export const Login = ({ onSwitchToRegister }) => {
 
     if (showForgotPassword) {
       return (
-        <div className="card" style={{ boxShadow: "var(--shadow-lg)", borderRadius: "16px", padding: "2rem" }}>
+        <div className="card auth-card-glass" style={{ padding: "2.25rem" }}>
           <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
             <div style={{
               display: "inline-flex", padding: "0.75rem", borderRadius: "12px",
@@ -402,7 +402,7 @@ export const Login = ({ onSwitchToRegister }) => {
 
     // Default Sign In Form
     return (
-      <div className="card" style={{ boxShadow: "var(--shadow-lg)", borderRadius: "16px", padding: "2.25rem" }}>
+      <div className="card auth-card-glass" style={{ padding: "2.25rem" }}>
         <div style={{ marginBottom: "1.5rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.4rem" }}>
             <div style={{
@@ -551,58 +551,52 @@ export const Login = ({ onSwitchToRegister }) => {
   const currentRole = mockRoles[mockRoleIndex];
 
   return (
-    <div style={{ maxWidth: "1200px", margin: "1rem auto 3rem auto", padding: "0 1rem" }}>
-      {/* 2-Column Responsive Layout */}
+    <div className="auth-wrapper">
+      <div className="auth-ambient-bg" />
+      <div className="auth-grid-overlay" />
       <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
-        gap: "2.75rem",
-        alignItems: "center"
+        position: "relative",
+        zIndex: 2,
+        maxWidth: "1200px",
+        width: "100%",
+        margin: "0 auto"
       }}>
-        {/* LEFT COLUMN: Interactive Feature Showcase */}
-        <div>
-          {/* Header & Value Proposition */}
-          <div style={{ marginBottom: "1.5rem" }}>
-            <div style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.4rem",
-              padding: "0.3rem 0.8rem",
-              borderRadius: "20px",
-              background: "var(--primary-light)",
-              color: "var(--primary)",
-              fontSize: "0.78rem",
-              fontWeight: 700,
-              marginBottom: "0.75rem"
-            }}>
-              <Sparkles size={14} /> AI-Powered Campus & Industry Recruitment
+        {/* 2-Column Responsive Layout */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+          gap: "2.75rem",
+          alignItems: "center"
+        }}>
+          {/* LEFT COLUMN: Interactive Feature Showcase */}
+          <div>
+            {/* Header & Value Proposition */}
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div className="auth-floating-badge" style={{ marginBottom: "0.85rem" }}>
+                <span className="auth-pulse-dot" />
+                <Sparkles size={14} /> AI-Powered Campus & Industry Recruitment
+              </div>
+
+              <h1 className="auth-hero-gradient-text" style={{
+                fontSize: "2.4rem",
+                fontWeight: 800,
+                lineHeight: 1.2,
+                letterSpacing: "-0.02em",
+                marginBottom: "0.75rem"
+              }}>
+                Where talent meets opportunity with precision AI.
+              </h1>
+
+              <p style={{ fontSize: "1rem", color: "var(--text-muted)", lineHeight: 1.6 }}>
+                HireSphere unites student candidates, approved recruiters, and administrators on a single high-performance platform. Experience automated ATS scoring, atomic interview scheduling, and verified networking.
+              </p>
             </div>
 
-            <h1 style={{
-              fontSize: "2.35rem",
-              fontWeight: 800,
-              lineHeight: 1.2,
-              color: "var(--text-main)",
-              letterSpacing: "-0.02em",
-              marginBottom: "0.75rem"
+            {/* Interactive Feature Explorer Box */}
+            <div className="card auth-card-glass" style={{
+              padding: "1.35rem",
+              marginBottom: "1.5rem"
             }}>
-              Where talent meets opportunity with precision AI.
-            </h1>
-
-            <p style={{ fontSize: "1rem", color: "var(--text-muted)", lineHeight: 1.6 }}>
-              HireSphere unites student candidates, approved recruiters, and administrators on a single high-performance platform. Experience automated ATS scoring, atomic interview scheduling, and verified networking.
-            </p>
-          </div>
-
-          {/* Interactive Feature Explorer Box */}
-          <div className="card" style={{
-            background: "#ffffff",
-            border: "1px solid var(--border)",
-            borderRadius: "16px",
-            padding: "1.25rem",
-            marginBottom: "1.5rem",
-            boxShadow: "var(--shadow)"
-          }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
               <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 Interactive Feature Preview
@@ -786,11 +780,8 @@ export const Login = ({ onSwitchToRegister }) => {
           </div>
 
           {/* Quick-Fill Demo Personas Bar */}
-          <div style={{
-            background: "#f8fafc",
-            border: "1px dashed var(--border)",
-            borderRadius: "12px",
-            padding: "0.85rem 1rem",
+          <div className="card auth-card-glass" style={{
+            padding: "0.95rem 1.15rem",
             marginBottom: "1.5rem"
           }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
@@ -803,7 +794,7 @@ export const Login = ({ onSwitchToRegister }) => {
                 type="button"
                 onClick={() => handleQuickFill("student@university.edu", "student123", "Student")}
                 className="btn btn-sm btn-secondary"
-                style={{ fontSize: "0.75rem", padding: "0.3rem 0.65rem", background: "#ffffff" }}
+                style={{ fontSize: "0.75rem", padding: "0.3rem 0.65rem", background: "rgba(255, 255, 255, 0.9)" }}
                 title="Fill student demo credentials"
               >
                 🎓 Student Account
@@ -812,7 +803,7 @@ export const Login = ({ onSwitchToRegister }) => {
                 type="button"
                 onClick={() => handleQuickFill("recruiter@techcorp.com", "recruiter123", "Recruiter")}
                 className="btn btn-sm btn-secondary"
-                style={{ fontSize: "0.75rem", padding: "0.3rem 0.65rem", background: "#ffffff" }}
+                style={{ fontSize: "0.75rem", padding: "0.3rem 0.65rem", background: "rgba(255, 255, 255, 0.9)" }}
                 title="Fill approved recruiter demo credentials"
               >
                 👔 Recruiter Account
@@ -821,7 +812,7 @@ export const Login = ({ onSwitchToRegister }) => {
                 type="button"
                 onClick={() => handleQuickFill("admin@recruit.com", "admin123", "Admin")}
                 className="btn btn-sm btn-secondary"
-                style={{ fontSize: "0.75rem", padding: "0.3rem 0.65rem", background: "#ffffff" }}
+                style={{ fontSize: "0.75rem", padding: "0.3rem 0.65rem", background: "rgba(255, 255, 255, 0.9)" }}
                 title="Fill administrator demo credentials"
               >
                 🛡️ Admin Account
@@ -830,18 +821,18 @@ export const Login = ({ onSwitchToRegister }) => {
           </div>
 
           {/* Platform Performance Metric Badges */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1rem" }}>
-            <div style={{ padding: "0.75rem", borderRadius: "10px", background: "#ffffff", border: "1px solid var(--border)", textAlign: "center" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.85rem" }}>
+            <div className="card auth-card-glass" style={{ padding: "0.85rem 0.6rem", textAlign: "center" }}>
               <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "var(--primary)" }}>94%</div>
-              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px" }}>ATS Match Precision</div>
+              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px", fontWeight: 600 }}>ATS Match Precision</div>
             </div>
-            <div style={{ padding: "0.75rem", borderRadius: "10px", background: "#ffffff", border: "1px solid var(--border)", textAlign: "center" }}>
+            <div className="card auth-card-glass" style={{ padding: "0.85rem 0.6rem", textAlign: "center" }}>
               <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#10b981" }}>&lt; 40ms</div>
-              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px" }}>Async Email Response</div>
+              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px", fontWeight: 600 }}>Async Dispatch</div>
             </div>
-            <div style={{ padding: "0.75rem", borderRadius: "10px", background: "#ffffff", border: "1px solid var(--border)", textAlign: "center" }}>
+            <div className="card auth-card-glass" style={{ padding: "0.85rem 0.6rem", textAlign: "center" }}>
               <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#f59e0b" }}>100%</div>
-              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px" }}>Zero-Trust PII Redaction</div>
+              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px", fontWeight: 600 }}>Zero-Trust Redaction</div>
             </div>
           </div>
         </div>
@@ -852,5 +843,6 @@ export const Login = ({ onSwitchToRegister }) => {
         </div>
       </div>
     </div>
+  </div>
   );
 };
