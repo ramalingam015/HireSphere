@@ -77,6 +77,13 @@ def ai_job_search_and_recommendations(
         s = f"%{search.strip()}%"
         query = query.filter(or_(Job.title.ilike(s), Job.description.ilike(s), Job.company.ilike(s)))
 
+
+    # FR-SCH-02..04: interpret the natural-language query once, validate it, and report anything rejected.
+    parsed_query, search_issues = parse_search_with_feedback(q) if q else ({}, [])
+    if search_issues and response is not None:
+        notice = "; ".join(search_issues)[:400].encode("ascii", "ignore").decode()
+        response.headers["X-AI-Search-Notice"] = notice
+
     # Fetch initial pool of active jobs
     all_jobs = query.all()
 
@@ -108,11 +115,6 @@ def ai_job_search_and_recommendations(
             except Exception:
                 pass
 
-    # FR-SCH-02..04: interpret the natural-language query once, validate it, and report anything rejected.
-    parsed_query, search_issues = parse_search_with_feedback(q) if q else ({}, [])
-    if search_issues and response is not None:
-        notice = "; ".join(search_issues)[:400].encode("ascii", "ignore").decode()
-        response.headers["X-AI-Search-Notice"] = notice
 
     # Score, filter, and rank using AI Service
     ranked = recommend_and_rank_jobs(

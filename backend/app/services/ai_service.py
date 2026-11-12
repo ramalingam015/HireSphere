@@ -46,12 +46,11 @@ def sanitize_for_ai(text: str) -> str:
 
 def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]:
     """Call the Google Gemini API with GEMINI_MODEL, falling back to other Flash models."""
-    import app.config as cfg  # read at call time: the admin can change the key/model at runtime
-    api_key = cfg.GEMINI_API_KEY
+    api_key = GEMINI_API_KEY
     if not api_key:
         return None
 
-    models = [cfg.GEMINI_MODEL, "gemini-flash-lite-latest", "gemini-flash-latest"]
+    models = [GEMINI_MODEL, "gemini-flash-lite-latest", "gemini-flash-latest"]
     for model_name in dict.fromkeys(m for m in models if m):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
         headers = {"x-goog-api-key": api_key}  # header, not ?key=, so it never lands in logs
@@ -104,8 +103,7 @@ def extract_skills_from_text(text: str, use_ai: bool = True) -> List[str]:
     if not text or not text.strip():
         return []
 
-    import app.config as cfg
-    if use_ai and cfg.GEMINI_API_KEY:
+    if use_ai and GEMINI_API_KEY:
         prompt = (
             "Analyze the following resume text and extract ALL programming languages, frameworks, "
             "libraries, databases, cloud platforms, DevOps tools, and technical skills possessed by the candidate.\n\n"
