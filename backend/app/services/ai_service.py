@@ -46,17 +46,19 @@ def sanitize_for_ai(text: str) -> str:
 
 def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]:
     """Call the Google Gemini API with GEMINI_MODEL, falling back to other Flash models."""
-    if not GEMINI_API_KEY:
+    import app.config as cfg  # read at call time: the admin can change the key/model at runtime
+    api_key = cfg.GEMINI_API_KEY
+    if not api_key:
         return None
 
-    models = [GEMINI_MODEL, "gemini-flash-lite-latest", "gemini-flash-latest"]
-    for model_name in dict.fromkeys(models):
+    models = [cfg.GEMINI_MODEL, "gemini-flash-lite-latest", "gemini-flash-latest"]
+    for model_name in dict.fromkeys(m for m in models if m):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-        headers = {"x-goog-api-key": GEMINI_API_KEY}  # header, not ?key=, so it never lands in logs
+        headers = {"x-goog-api-key": api_key}  # header, not ?key=, so it never lands in logs
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0.2,
+                "temperature": 0.1,
                 "responseMimeType": "application/json"
             }
         }
@@ -97,28 +99,60 @@ def call_best_ai_json(prompt: str, system_prompt: str = "") -> Optional[Dict[str
     return None
 
 def extract_skills_from_text(text: str, use_ai: bool = True) -> List[str]:
-    """Extract technical skills from resume text using Gemini (if enabled) or the curated taxonomy."""
+    """Extract technical skills from resume text using Gemini (if enabled) or the curated taxonomy,
+    with strict protections against false positives (e.g. the letter 'C')."""
     if not text or not text.strip():
         return []
 
-    if use_ai and GEMINI_API_KEY:
+    import app.config as cfg
+    if use_ai and cfg.GEMINI_API_KEY:
         prompt = (
-            f"Extract all technical skills, programming languages, databases, frameworks, and developer tools "
-            f"from this resume snippet. Return JSON format: {{\"skills\": [\"Skill1\", \"Skill2\"]}}.\n\n"
-            f"Resume Text:\n{sanitize_for_ai(text)[:4000]}"
+            "Analyze the following resume text and extract ALL programming languages, frameworks, "
+            "libraries, databases, cloud platforms, DevOps tools, and technical skills possessed by the candidate.\n\n"
+            "STRICT ACCURACY RULES:\n"
+            "1. DO NOT extract or output 'C' or 'C Language' unless the resume explicitly mentions "
+            "'C language', 'C programming', 'ANSI C', or 'C/C++'.\n"
+            "2. DO NOT treat single letter section titles (e.g., 'C.', 'Section C'), bullet points, "
+            "middle initials, or letter grades ('Grade C') as the C programming language.\n"
+            "3. Normalize variations to standard professional naming (e.g., 'React' or 'React.js', 'PostgreSQL', 'Docker').\n"
+            "4. Return ONLY a valid JSON object with a single 'skills' key: {\"skills\": [\"Skill1\", \"Skill2\", ...]}\n\n"
+            f"Resume Text:\n{sanitize_for_ai(text)[:6000]}"
         )
-        res = call_best_ai_json(prompt, system_prompt="You are an expert technical recruiter ATS.")
+        res = call_best_ai_json(prompt, system_prompt="You are an expert technical ATS resume parser.")
         if res and isinstance(res.get("skills"), list):
-            cleaned = [str(s).strip() for s in res["skills"] if str(s).strip()]
+            cleaned = []
+            for s in res["skills"]:
+                val = str(s).strip()
+                if not val:
+                    continue
+                # Double-check guard against single 'C' false positives
+                if val.lower() == "c":
+                    if not re.search(r'\b(?:c\s*programming|c\s*language|ansi\s*c|c\s*\/\s*c\+\+)\b', text, re.IGNORECASE):
+                        continue
+                cleaned.append(val)
             if cleaned:
                 return cleaned
 
+    # Deterministic taxonomy fallback with word boundaries (NEVER loose substring)
     lowered = " " + text.lower() + " "
     found = []
     for skill in POPULAR_TECH_SKILLS:
         s_norm = skill.lower()
+        if s_norm in ("c", "c language"):
+            if re.search(r'\b(?:c\s*programming|c\s*language|ansi\s*c|c\s*\/\s*c\+\+)\b', lowered):
+                if "C" not in found:
+                    found.append("C")
+            continue
+
+        if any(ch in skill for ch in ["+", "#", "."]):
+            sym_pattern = r'(?:^|[\s,;/()|\[\]])' + re.escape(s_norm) + r'(?:$|[\s,;/()|\[\]])'
+            if re.search(sym_pattern, lowered):
+                if skill not in found:
+                    found.append(skill)
+            continue
+
         pattern = r'(?:\b|_)' + re.escape(s_norm) + r'(?:\b|_)'
-        if re.search(pattern, lowered) or s_norm in lowered:
+        if re.search(pattern, lowered):
             canonical = "PostgreSQL" if s_norm in ("postgres", "postgresql") else skill
             if canonical not in found:
                 found.append(canonical)

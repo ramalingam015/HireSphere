@@ -5,9 +5,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import (
     User, UserRole, RecruiterStatus, Job, JobSkill, Application, ApplicationStatusHistory,
-    InterviewSlot, Connection, Message, Post, PostLike, PostComment, AuditLog
+    InterviewSlot, Connection, Message, Post, PostLike, PostComment, AuditLog, Complaint
 )
-from app.schemas import UserOut, JobOut, ApplicationOut, RecruiterActionRequest, PostOut, ResetDatabaseRequest
+from app.schemas import (
+    UserOut, JobOut, ApplicationOut, RecruiterActionRequest, PostOut, ResetDatabaseRequest,
+    ComplaintOut, ComplaintActionRequest, UserBlockRequest
+)
 from app.auth import require_admin, get_password_hash
 import app.config as config
 from app import storage
@@ -95,22 +98,172 @@ def recruiter_action(
     db.refresh(recruiter)
     return recruiter
 
+@router.get("/users")
+def list_all_users(
+    role: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """
+    List all platform users with roles, account states, blocked status, and complaint counts.
+    Allows administrators to audit and moderate students and recruiters.
+    """
+    query = db.query(User)
+    if role and role.lower() != "all":
+        query = query.filter(User.role == role.lower())
+    if search:
+        s = f"%{search.strip()}%"
+        query = query.filter((User.full_name.ilike(s)) | (User.email.ilike(s)) | (User.company.ilike(s)))
+    users = query.order_by(User.created_at.desc()).all()
+
+    results = []
+    for u in users:
+        complaint_count = db.query(Complaint).filter(Complaint.target_user_id == u.id).count()
+        results.append({
+            "id": u.id,
+            "email": u.email,
+            "full_name": u.full_name,
+            "role": u.role,
+            "company": u.company or "",
+            "location": u.location or "",
+            "is_active": u.is_active,
+            "is_blocked": getattr(u, 'is_blocked', False),
+            "block_reason": getattr(u, 'block_reason', ''),
+            "recruiter_status": u.recruiter_status,
+            "is_email_verified": u.is_email_verified,
+            "complaints_count": complaint_count,
+            "created_at": u.created_at
+        })
+    return results
+
+@router.post("/users/{user_id}/block")
+def toggle_user_block(
+    user_id: int,
+    req: UserBlockRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """
+    Block or unblock any candidate or recruiter based on user complaints or spam.
+    Blocking cascades deactivation and cancels any active interview slots for recruiters.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.role == UserRole.ADMIN:
+        raise HTTPException(status_code=400, detail="Cannot block an administrator account.")
+
+    user.is_blocked = req.is_blocked
+    user.block_reason = req.reason or ("Blocked by administrator" if req.is_blocked else "")
+    user.is_active = not req.is_blocked
+
+    # If recruiter is blocked, suspend recruiter account and cancel active booked interview slots
+    if user.role == UserRole.RECRUITER and req.is_blocked:
+        user.recruiter_status = RecruiterStatus.SUSPENDED
+        slots = db.query(InterviewSlot).filter(InterviewSlot.recruiter_id == user.id).all()
+        for s in slots:
+            if s.is_booked or not s.is_cancelled:
+                s.is_cancelled = True
+                s.cancelled_reason = f"Recruiter blocked by administrator: {req.reason or 'Administrative moderation'}"
+                s.is_booked = False
+
+    action_text = "BLOCKED" if req.is_blocked else "UNBLOCKED"
+    db.add(AuditLog(
+        user_id=admin.id,
+        action=f"USER_{action_text}",
+        resource_type="USER",
+        resource_id=str(user.id),
+        details=req.reason or f"User account {action_text.lower()} by admin."
+    ))
+
+    db.commit()
+    db.refresh(user)
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role,
+        "is_active": user.is_active,
+        "is_blocked": user.is_blocked,
+        "block_reason": user.block_reason
+    }
+
+@router.get("/complaints", response_model=List[ComplaintOut])
+def list_admin_complaints(
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """
+    List all submitted complaints, suggestions, and spam reports.
+    """
+    query = db.query(Complaint)
+    if status and status.upper() != "ALL":
+        query = query.filter(Complaint.status == status.upper())
+    if category and category.lower() != "all":
+        query = query.filter(Complaint.category == category.lower())
+    complaints = query.order_by(Complaint.created_at.desc()).all()
+
+    results = []
+    for c in complaints:
+        reporter = db.query(User).filter(User.id == c.user_id).first()
+        target = db.query(User).filter(User.id == c.target_user_id).first() if c.target_user_id else None
+        results.append(ComplaintOut(
+            id=c.id,
+            user_id=c.user_id,
+            category=c.category,
+            target_user_id=c.target_user_id,
+            target_job_id=c.target_job_id,
+            subject=c.subject,
+            description=c.description,
+            status=c.status,
+            admin_notes=c.admin_notes or "",
+            created_at=c.created_at,
+            updated_at=c.updated_at,
+            reporter_name=reporter.full_name if reporter else "Unknown",
+            reporter_email=reporter.email if reporter else "",
+            reporter_role=reporter.role if reporter else "",
+            target_user_name=target.full_name if target else None,
+            target_user_email=target.email if target else None,
+            target_user_role=target.role if target else None
+        ))
+    return results
+
+@router.post("/complaints/{complaint_id}/action")
+def act_on_complaint(
+    complaint_id: int,
+    req: ComplaintActionRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """
+    Update status of complaint (RESOLVED, DISMISSED, PENDING) with administrator notes.
+    """
+    c = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    c.status = req.status.upper()
+    if req.admin_notes is not None:
+        c.admin_notes = req.admin_notes
+    c.updated_at = datetime.utcnow()
+    db.commit()
+    return {"id": c.id, "status": c.status, "admin_notes": c.admin_notes}
+
 @router.get("/spam-monitor")
 def get_spam_and_activity_monitor(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin)
 ):
     """
-    Monitor student and recruiter activities for spam openings or applications.
-    Detect potential spam keywords, bulk application spams, or empty profiles.
+    Comprehensive platform activity monitor and high-efficiency stats dashboard.
     """
     all_jobs = db.query(Job).order_by(Job.created_at.desc()).limit(50).all()
     all_apps = db.query(Application).order_by(Application.created_at.desc()).limit(50).all()
 
-    # Heuristic spam flags
     flagged_jobs = []
     for j in all_jobs:
-        # Check suspicious patterns like excessive exclamation, crypto/clickbait keywords, or explicit flag
         text = (j.title + " " + j.description).lower()
         is_suspicious = any(k in text for k in ["earn fast", "100% free money", "telegram", "whatsapp money", "guaranteed rich"]) or j.is_flagged_spam
         flagged_jobs.append({
@@ -141,14 +294,32 @@ def get_spam_and_activity_monitor(
             "created_at": a.created_at
         })
 
+    total_apps = db.query(Application).count()
+    interview_count = db.query(Application).filter(Application.status.in_(["Interview", "Selected"])).count()
+    conversion_rate = round((interview_count / total_apps * 100), 1) if total_apps > 0 else 0.0
+
+    # Calculate average ATS score
+    scored_apps = db.query(Application).filter(Application.ats_score != None).all()
+    avg_ats = round(sum(a.ats_score for a in scored_apps) / len(scored_apps), 1) if scored_apps else 0.0
+
     return {
         "jobs": flagged_jobs,
         "applications": flagged_apps,
         "total_jobs": db.query(Job).count(),
-        "total_applications": db.query(Application).count(),
+        "active_jobs": db.query(Job).filter(Job.is_active == True, Job.is_flagged_spam == False).count(),
+        "spam_jobs_count": db.query(Job).filter(Job.is_flagged_spam == True).count(),
+        "total_applications": total_apps,
+        "conversion_rate": conversion_rate,
+        "avg_ats_score": avg_ats,
+        "total_users": db.query(User).count(),
         "total_candidates": db.query(User).filter(User.role == UserRole.CANDIDATE).count(),
         "total_recruiters": db.query(User).filter(User.role == UserRole.RECRUITER).count(),
-        "pending_recruiters": db.query(User).filter(User.recruiter_status == RecruiterStatus.PENDING).count()
+        "pending_recruiters": db.query(User).filter(User.recruiter_status == RecruiterStatus.PENDING).count(),
+        "suspended_recruiters": db.query(User).filter(User.recruiter_status == RecruiterStatus.SUSPENDED).count(),
+        "blocked_users_count": db.query(User).filter(User.is_blocked == True).count(),
+        "total_complaints": db.query(Complaint).count(),
+        "pending_complaints": db.query(Complaint).filter(Complaint.status == "PENDING").count(),
+        "resolved_complaints": db.query(Complaint).filter(Complaint.status == "RESOLVED").count()
     }
 
 @router.post("/jobs/{job_id}/toggle-spam")

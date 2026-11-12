@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.database import engine, Base
 from app.config import CORS_ORIGINS
@@ -9,7 +10,8 @@ from app.migrations import run_auto_migrations
 from app.seed import seed_database
 from app.routes import (
     auth_routes, jobs_routes, applications_routes,
-    interviews_routes, networking_routes, admin_routes, files_routes
+    interviews_routes, networking_routes, admin_routes, files_routes,
+    complaints_routes
 )
 
 @asynccontextmanager
@@ -41,6 +43,9 @@ app.add_middleware(
     expose_headers=["X-AI-Search-Notice"],
 )
 
+# GZip compression to speed up payload delivery
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 # Include Routers
 app.include_router(auth_routes.router)
 app.include_router(jobs_routes.router)
@@ -49,6 +54,7 @@ app.include_router(interviews_routes.router)
 app.include_router(networking_routes.router)
 app.include_router(admin_routes.router)
 app.include_router(files_routes.router)
+app.include_router(complaints_routes.router)
 
 
 @app.get("/api/health")

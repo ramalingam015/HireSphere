@@ -35,6 +35,12 @@ def run_auto_migrations():
                 if "resume_text" not in user_cols:
                     conn.execute(text("ALTER TABLE users ADD COLUMN resume_text TEXT"))
                     print("[MIGRATION] Added resume_text column to users.")
+                if "is_blocked" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN is_blocked BOOLEAN DEFAULT FALSE"))
+                    print("[MIGRATION] Added is_blocked column to users.")
+                if "block_reason" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN block_reason VARCHAR(255) DEFAULT ''"))
+                    print("[MIGRATION] Added block_reason column to users.")
 
             if "jobs" in existing_tables:
                 job_cols = {c["name"] for c in inspector.get_columns("jobs")}

@@ -194,7 +194,9 @@ export const ProfilePage = () => {
           <div className="form-group">
             <label className="form-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>Key Skills (Comma Separated)</span>
-              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: "normal" }}>Used for AI matching & ATS</span>
+              {user?.role === "candidate" && (
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: "normal" }}>Used for AI matching & ATS</span>
+              )}
             </label>
             <input 
               type="text" 
@@ -224,7 +226,8 @@ export const ProfilePage = () => {
         </form>
       </div>
 
-      {/* Resume Management Section for AI Recommendations */}
+      {/* Resume Management Section for AI Recommendations - Only shown to candidate/student users */}
+      {user?.role === "candidate" && (
       <div className="card">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -378,6 +381,7 @@ export const ProfilePage = () => {
           </div>
         </div>
       </div>
+      )}
       {viewingResume && user?.resume_file_path && (
         <ResumeViewerModal
           resumePath={user.resume_file_path}

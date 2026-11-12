@@ -5,7 +5,7 @@ import {
   CheckCircle2, Clock, AlertTriangle 
 } from "lucide-react";
 
-export const Navbar = ({ currentTab, setCurrentTab }) => {
+export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenComplaints }) => {
   const { user, logout } = useAuth();
 
   return (
@@ -105,6 +105,18 @@ export const Navbar = ({ currentTab, setCurrentTab }) => {
                   {user.full_name}
                 </button>
               </div>
+
+              {onOpenComplaints && user?.role !== "admin" && (
+                <button 
+                  className="btn btn-secondary btn-sm"
+                  onClick={onOpenComplaints}
+                  title="Submit a complaint, suggestion, or report spam"
+                  style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
+                >
+                  <MessageSquare size={13} />
+                  <span>Complaints & Suggestions</span>
+                </button>
+              )}
 
               <button 
                 className="btn btn-secondary btn-sm"

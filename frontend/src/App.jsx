@@ -10,12 +10,14 @@ import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { resolveTab } from "./auth/access";
+import { ComplaintsModal } from "./components/ComplaintsModal";
 
 function MainApp() {
   const { user, loading } = useAuth();
   const [currentTab, setCurrentTab] = useState("jobs");
   const [authMode, setAuthMode] = useState("login");
   const [chatTargetUser, setChatTargetUser] = useState(null);
+  const [showComplaintsModal, setShowComplaintsModal] = useState(false);
 
   // Role-based tab isolation, derived during render (no flash of a forbidden page):
   // recruiters/admins never see candidate tabs and vice versa. The backend enforces the same rules.
@@ -63,6 +65,7 @@ function MainApp() {
         currentTab={activeTab} 
         setCurrentTab={setCurrentTab} 
         onOpenChatWith={setChatTargetUser} 
+        onOpenComplaints={() => setShowComplaintsModal(true)}
       />
 
       <main className="main-content">
@@ -113,6 +116,12 @@ function MainApp() {
         />
       )}
 
+      {/* Complaints, Suggestions & Spam Reports Modal */}
+      {showComplaintsModal && (
+        <ComplaintsModal
+          onClose={() => setShowComplaintsModal(false)}
+        />
+      )}
     </div>
   );
 }

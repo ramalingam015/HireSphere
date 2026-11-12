@@ -57,24 +57,52 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     return ""
 
 def match_skills_in_text(skill_names: List[str], text: str) -> Tuple[List[str], List[str]]:
-    """Determine which skills are present in the resume text."""
+    """
+    Determine which skills are present in the resume text with high precision.
+    Special guard prevents false positives for 'C' language from general text,
+    grades, or bullet points.
+    """
     lowered_text = " " + text.lower() + " "
     matched = []
     missing = []
 
     for orig_skill in skill_names:
-        norm = normalize_skill(orig_skill)
-        # Search using regex word boundary or literal inclusion for symbols like C++, C#
-        pattern = r'(?:\b|_)' + re.escape(norm) + r'(?:\b|_)'
-        if re.search(pattern, lowered_text) or norm in lowered_text:
-            matched.append(orig_skill)
-        else:
-            # Also check original skill name directly
-            pattern_orig = r'(?:\b|_)' + re.escape(orig_skill.lower()) + r'(?:\b|_)'
-            if re.search(pattern_orig, lowered_text) or orig_skill.lower() in lowered_text:
+        clean = orig_skill.strip()
+        norm = normalize_skill(clean)
+        if not norm:
+            continue
+
+        # 1. High-precision handling for C programming language
+        if norm in ("c", "c lang", "c language", "c programming"):
+            # Explicit C language phrases
+            explicit_c = re.search(r'\b(?:c\s*programming|c\s*language|ansi\s*c|c\s*\/\s*c\+\+|embedded\s*c)\b', lowered_text)
+            # Delimited technical list item (e.g., "Python, C, Java" or "Skills: C / C++")
+            delimited_c = re.search(r'(?<=[\s,;/|\(\[])c(?=[\s,;/|\)\]]|\Z)', lowered_text)
+            # Check for non-skill occurrences like "Grade: C" or "C. Work Experience"
+            is_bullet_or_grade = re.search(r'(?:grade\s*[:\-]?\s*c\b|section\s+c\b|class\s+c\b|(?:\b|^)c\.\s+[a-z])', lowered_text)
+
+            if explicit_c or (delimited_c and not is_bullet_or_grade):
                 matched.append(orig_skill)
             else:
                 missing.append(orig_skill)
+            continue
+
+        # 2. Languages / frameworks with symbols (C++, C#, .NET, Node.js)
+        if any(ch in clean for ch in ["+", "#", "."]):
+            sym_pattern = r'(?:^|[\s,;/()|\[\]])' + re.escape(clean.lower()) + r'(?:$|[\s,;/()|\[\]])'
+            if re.search(sym_pattern, lowered_text):
+                matched.append(orig_skill)
+            else:
+                missing.append(orig_skill)
+            continue
+
+        # 3. Standard technical skills using word boundaries (NEVER loose substring)
+        pattern = r'(?:\b|_)' + re.escape(norm) + r'(?:\b|_)'
+        pattern_orig = r'(?:\b|_)' + re.escape(clean.lower()) + r'(?:\b|_)'
+        if re.search(pattern, lowered_text) or re.search(pattern_orig, lowered_text):
+            matched.append(orig_skill)
+        else:
+            missing.append(orig_skill)
 
     return matched, missing
 
