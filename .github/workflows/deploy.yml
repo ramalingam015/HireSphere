@@ -31,6 +31,7 @@ jobs:
           npm run build
 
       - name: Deploy to Firebase Hosting
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -38,3 +39,8 @@ jobs:
           projectId: hiresphere-cs455
           entryPoint: frontend
           channelId: live
+
+      - name: Skip Firebase Deploy (Secret Missing)
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT == '' }}
+        run: |
+          echo "::warning::FIREBASE_SERVICE_ACCOUNT secret is not configured in GitHub repository secrets. Skipping Firebase deployment."
