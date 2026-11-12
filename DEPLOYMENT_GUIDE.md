@@ -1,352 +1,115 @@
-# Complete Step-by-Step Deployment Guide
+# Deployment Guide
 **HireSphere Job Recruitment & Interview Management Platform**
 
-This guide provides end-to-end instructions for deploying HireSphere to production or your organization's server. Choose the method that best matches your target hosting environment:
+Production layout: **backend + PostgreSQL + SeaweedFS on an Oracle Cloud VM** (Docker Compose, Caddy for HTTPS) and the **React frontend on Firebase Hosting**.
 
-- **Method 1:** [Docker & Docker Compose (Recommended for Any VPS / Cloud Server)](#method-1-docker--docker-compose-recommended)
-- **Method 2:** [Cloud PaaS Hosting (Render / Railway / Fly.io — Zero Server Management)](#method-2-cloud-paas-deployment-render--railway)
-- **Method 3:** [Ubuntu / Debian Linux Server with Nginx, Systemd & Let's Encrypt SSL](#method-3-traditional-linux-vps-ubuntu--nginx--systemd)
-- **Method 4:** [Campus LAN / Local Windows Server Deployment](#method-4-campus-lan--local-server-deployment)
-- **Method 5:** [GitHub Pages Frontend Deployment (+ Free Backend)](#method-5-github-pages-frontend-deployment)
+## ⚙️ Environment Variables
 
----
+Set these in `backend/.env` on the VM ([backend/.env.example](backend/.env.example) documents every variable; the frontend has its own [frontend/.env.example](frontend/.env.example)). Variables marked *required* make the stack refuse to start when missing.
 
-## ⚙️ Key Environment Variables Reference
-
-Configure these environment variables in your server's `.env` file or cloud dashboard:
-
-| Variable | Default Value | Description |
+| Variable | Required | Description |
 | :--- | :--- | :--- |
-| `SECRET_KEY` | *(Built-in default)* | Cryptographic secret key used to sign JWT auth tokens. Generate a secure random string for production. |
-| `DATABASE_URL` | `sqlite:///backend/recruitment.db` | Database connection string. Use `postgresql://user:pass@host:5432/dbname` for production PostgreSQL. |
-| `PORT` | `8000` | Port on which the FastAPI application listens. |
-| `OLLAMA_URL` | `http://localhost:11434` | Endpoint for Ollama AI inference (optional; system falls back to built-in NLP heuristics if unavailable). |
-| `VITE_API_BASE` | `""` (Empty string) | API root URL for frontend. Keep empty for same-origin deployment. |
-| `ADMIN_REGISTRATION_KEY` | `CS455-ADMIN-2026` | Passcode required when registering an Administrator account. |
-| `BREVO_API_KEY` | `""` | Brevo API key (`xkeysib-...`). Dispatches emails via HTTPS API (immune to cloud host SMTP port blocks). |
-| `SMTP_HOST` | `smtp.gmail.com` | SMTP email server host. |
-| `SMTP_PORT` | `587` | SMTP email server port (587 for TLS, 465 for SSL). |
-| `SMTP_USER` | `""` | Sender email address (e.g. `your-email@gmail.com`). Required for real email delivery. |
-| `SMTP_PASSWORD` | `""` | Sender SMTP password or Google 16-character App Password. Required for real email delivery. |
-| `SMTP_FROM_EMAIL` | Same as `SMTP_USER` | "From" address shown on verification emails (must match your registered/verified email). |
+| `APP_ENV` | yes on the VM | Set `production`. The API then refuses to start while any dev default is left (weak/dev `SECRET_KEY`, default `ADMIN_REGISTRATION_KEY`, default Postgres/S3 passwords, `CORS_ORIGINS=*`). |
+| `DATABASE_URL` | yes | PostgreSQL URL. Built from `POSTGRES_PASSWORD` by `docker-compose.yml`. |
+| `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | yes | S3 storage (SeaweedFS) used only by the backend. Set by compose from `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`. |
+| `SECRET_KEY` | yes | Signs JWTs. `openssl rand -hex 32`. |
+| `ADMIN_REGISTRATION_KEY` | yes | Passcode for registering Administrators and for the admin database reset. |
+| `CORS_ORIGINS` | yes | Allowed browser origins, e.g. `https://hiresphere-cs455.web.app,https://hiresphere-cs455.firebaseapp.com`. |
+| `API_DOMAIN` | yes | Public hostname of the API (Caddy gets its HTTPS certificate for it). |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | no | Google Gemini for AI search, skill extraction and recommendations (default model alias `gemini-flash-lite-latest`; Google retires Gemini models quickly, so prefer an alias). Without a key, built-in heuristics are used. |
+| `SMTP_*`, `BREVO_API_KEY`, `RESEND_API_KEY`, `SENDGRID_API_KEY` | no | Email delivery for verification codes. |
+| `VITE_API_BASE` | frontend build | API URL baked into the Firebase build. Lives in `frontend/.env` locally and the GitHub repo variable of the same name in CI (never put secrets in frontend env: it is public). |
+
+## 🔐 Security model
+
+- Every endpoint except register / login / verify-email / resend-verification / email-diagnostics / health requires a JWT (`Authorization: Bearer …`). A test fails if a new endpoint is added without one.
+- Resumes are uploaded to the API and stored in SeaweedFS by the backend only. Downloads go through `GET /api/files/resumes/<file>`, allowed for the owning candidate, the recruiter of the job applied to, and admins. The S3 server is never exposed publicly.
+- `reset-database`, `configure-email` and `test-email` require an **admin** JWT (the reset also requires `ADMIN_REGISTRATION_KEY`).
 
 ---
 
-### 📧 Setting Up Real Email OTP Delivery
+### 📧 Email verification codes
 
-#### Option A: Using Gmail Direct SSL (Recommended — Nodemailer Method)
-This connects via direct SSL on port 465 (the exact method Nodemailer uses with `service: 'gmail'`). It connects in 0.5s, never hangs, and doesn't suffer from cloud port blocking:
-1. Go to your **Google Account** -> **Security** -> Enable **2-Step Verification** (if not already enabled).
-2. Go to **App passwords** ([myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)).
-3. Create an app name (e.g. `HireSphere`) and click **Create**.
-4. Copy the generated **16-character password** (e.g. `abcd efgh ijkl mnop`).
-5. In your web application, click the **"✉️ Email Setup"** button in the top bar:
-   - Select **Gmail**
-   - Enter your Gmail address and 16-character App Password
-   - Click **Test & Save Email Settings**
-   - A real OTP test code will immediately arrive in your inbox!
-*(Or add `SMTP_USER=your_email@gmail.com` and `SMTP_PASSWORD=your_16_char_password` to your Render Environment tab).*
+New accounts must verify their email with a 6-digit code before they get a token or can log in. Delivery is configured **only through `backend/.env`** (restart the API after changing it). The first provider that has credentials is used, in this order: **Resend → SendGrid → Brevo → Gmail → generic SMTP**.
 
-#### Option B: Using Resend API (3,000 Free Emails / Month)
-Resend is modern, fast, and does not require manual account validation:
-1. Sign up for a free account at [resend.com](https://resend.com).
-2. Go to **API Keys** -> click **Create API Key**. Copy the key (`re_...`).
-3. Click **"✉️ Email Setup"** in HireSphere -> select **Resend** -> paste your key -> click **Test & Save**.
+| Provider | Variables | Notes |
+| :--- | :--- | :--- |
+| Resend (HTTPS) | `RESEND_API_KEY` (`re_…`) | Without a verified domain, Resend can only deliver to your own account email. Set `SMTP_FROM_EMAIL` to an address on a verified domain to mail anyone. |
+| SendGrid (HTTPS) | `SENDGRID_API_KEY` (`SG.…`), `SMTP_FROM_EMAIL` | `SMTP_FROM_EMAIL` must be a verified sender. |
+| Brevo (HTTPS) | `BREVO_API_KEY` (`xkeysib-…`, from the *API Keys* tab), `SMTP_FROM_EMAIL` | Sender must be your Brevo signup email; new accounts need their profile completed first. |
+| Gmail (SMTP SSL 465) | `SMTP_USER`, `SMTP_PASSWORD` | Needs 2-Step Verification and a 16-character [App Password](https://myaccount.google.com/apppasswords), not your normal password. Fine for testing; Gmail limits daily volume. |
+| Other SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL` | Port 465 uses SSL, anything else STARTTLS. |
 
-#### Option C: Using Brevo API
-If using Brevo, note that **new Brevo accounts are placed on temporary hold until you complete your account profile on brevo.com**. Also ensure that the `From` address matches your registered Brevo account email.
+On the Oracle VM prefer an HTTPS provider (port 443): Oracle blocks outbound port 25 and other hosts block SMTP entirely.
 
-
-## Method 1: Docker & Docker Compose (Recommended)
-
-Docker Compose bundles the FastAPI application, the compiled React frontend, and a high-performance PostgreSQL 16 database into isolated, persistent containers.
-
-### Prerequisites
-- Docker Engine & Docker Compose installed on your host machine ([Install Docker](https://docs.docker.com/engine/install/)).
-
-### Step 1: Transfer the Project Files to Your Server
-Unzip `recruitment_platform.zip` on your server:
-```bash
-unzip recruitment_platform.zip -d recruitment_platform
-cd recruitment_platform
-```
-
-### Step 2: Configure Environment Secrets (Optional)
-Inspect or edit `docker-compose.yml`:
-```yaml
-environment:
-  - SECRET_KEY=generate_a_secure_random_key_here
-  - DATABASE_URL=postgresql://postgres:postgrespassword@db:5432/recruitment_db
-```
-*(You can generate a strong secret key using `openssl rand -hex 32`)*
-
-### Step 3: Build and Start Containers
-Run the following command in the project root:
-```bash
-docker compose up -d --build
-```
-
-### Step 4: Verify Deployment
-Check that the containers are healthy and running:
-```bash
-docker compose ps
-docker compose logs -f web
-```
-- Open `http://<your-server-ip>:8000` in your web browser.
-- The interactive API Swagger documentation is available at `http://<your-server-ip>:8000/docs`.
-
-### Step 5: Managing the Service
-- **Stop containers:** `docker compose down`
-- **Restart containers:** `docker compose restart`
-- **View live logs:** `docker compose logs -f`
+Behaviour worth knowing:
+- With no provider configured, accounts cannot be verified. In **development** the code is printed in the API log (`docker compose logs api | grep 6-digit`); with `APP_ENV=production` it is never logged.
+- A code is valid for 24 hours, allows 5 wrong attempts (then a new code is required), and a new code can be requested once per 60 seconds.
+- Seeded demo accounts are pre-verified.
+- Test delivery as an admin: `POST /api/auth/test-email` with `{"email": "you@example.com"}` and an admin Bearer token; the response says exactly what the provider returned.
 
 ---
 
-## Method 2: Cloud PaaS Deployment (Render / Railway)
+## Deploying: Oracle VM (backend) + Firebase Hosting (frontend)
 
-If you don't want to manage a Linux virtual machine, you can deploy in minutes on free/inexpensive cloud platforms like **Render.com** or **Railway.app**.
+**Recommended production layout.** Everything stateful lives on one Oracle Cloud VM and is self-hosted (no AWS):
 
-### Deploying on Render (Step-by-Step)
+```
+Browser ──► Firebase Hosting (React build, static)
+   │
+   └─HTTPS─► https://api.<your-domain>  ──► Caddy (auto TLS) ──► FastAPI ──► PostgreSQL
+                                                                      └────► SeaweedFS (resumes, S3 API)
+```
 
-1. **Push your code to GitHub / GitLab:**
-   - Create a repository named `recruitment_platform`.
-   - Push the contents of the unzipped folder to your repository.
+> **Storage note:** S3 storage is SeaweedFS (`chrislusf/seaweedfs:4.50`, official multi-arch image, no compile; SeaweedFS was dropped because it no longer publishes images). It listens on port 8333 bound to the VM's loopback only. The `MINIO_*` variable names are unchanged and mean the S3 endpoint and keys.
 
-2. **Create a PostgreSQL Database on Render:**
-   - Log into [Render Dashboard](https://dashboard.render.com).
-   - Click **New +** → **PostgreSQL**.
-   - Name it `hiresphere-db` and select the Free tier.
-   - Click **Create Database**.
-   - Once provisioned, copy the **Internal Database URL** (e.g., `postgresql://user:pass@dpg-xxxx/dbname`).
+Resumes are stored in SeaweedFS and served through the API (the JWT-protected `GET /api/files/resumes/<file>`), so the S3 port is never exposed publicly.
 
-3. **Create the Web Service:**
-   - Click **New +** → **Web Service**.
-   - Connect your GitHub repository.
-   - **Environment:** `Docker` (Render will automatically detect `Dockerfile`).
-   - In the **Environment Variables** section, add:
-     - `DATABASE_URL`: *(Paste the Internal Database URL copied in Step 2)*
-     - `SECRET_KEY`: *(Enter a random 32-character string)*
-     - `PORT`: `8000`
-   - Click **Create Web Service**.
+### Part A — Oracle VM
 
-4. **Add Persistent Disk for Resume Uploads:**
-   - Under your Web Service settings, go to **Disks**.
-   - Click **Add Disk**:
-     - **Name:** `resumes-disk`
-     - **Mount Path:** `/app/backend/uploads/resumes`
-     - **Size:** `1 GB` (or larger depending on expected resume volume).
+1. **Create the VM** (Always Free works: Ubuntu 22.04/24.04, Ampere A1 or AMD Micro). The compose images are multi-arch.
+2. **Open ports 80 and 443** in two places (both are required on Oracle):
+   - OCI Console → VCN → Security List → add Ingress rules for TCP `80` and `443` from `0.0.0.0/0`.
+   - On the VM (Oracle images ship with restrictive iptables):
+     ```bash
+     sudo iptables -I INPUT 6 -p tcp --dport 80 -j ACCEPT
+     sudo iptables -I INPUT 6 -p tcp --dport 443 -j ACCEPT
+     sudo netfilter-persistent save
+     ```
+3. **Install Docker:** `curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $USER` (log out/in).
+4. **DNS:** point an `A` record such as `api.example.com` at the VM's public IP. Firebase is HTTPS, so the API must be HTTPS and therefore needs a hostname (a free DuckDNS/sslip.io name works).
+5. **Deploy:**
+   ```bash
+   git clone <your-repo> hiresphere && cd hiresphere
+   cp backend/.env.example backend/.env
+   nano backend/.env    # APP_ENV=production, API_DOMAIN, CORS_ORIGINS, secrets (openssl rand -hex 32)
+   docker compose --env-file backend/.env --profile prod up -d --build
+   ```
+6. **Verify:** `curl https://api.example.com/api/health`. Caddy obtains the certificate automatically on first request.
+7. **Storage:** SeaweedFS has no public ports; the S3 API is on `127.0.0.1:8333` only. Inspect it with `ssh -L 8333:localhost:8333 ubuntu@<vm-ip>` and any S3 client.
+8. **Backups:** data lives in the Docker volumes `postgres_data` and `storage_data`. Back up with `pg_dump` and by archiving the `storage_data` volume.
 
-5. **Done!** Render gives you a free HTTPS domain (e.g., `https://hiresphere-app.onrender.com`).
+### Part B — Firebase Hosting (frontend)
 
----
+1. The Firebase config lives in `frontend/` ([firebase.json](frontend/firebase.json), [.firebaserc](frontend/.firebaserc), project `hiresphere-cs455`, serving `frontend/dist`).
+2. **One-time manual deploy** (optional):
+   ```bash
+   npm i -g firebase-tools && firebase login
+   cd frontend && VITE_API_BASE=https://api.example.com npm run build
+   firebase deploy --only hosting
+   ```
+3. **Automatic deploy on push** (`.github/workflows/deploy.yml`). In the GitHub repo add:
+   - Variable `VITE_API_BASE` = `https://api.example.com`
+   - Secret `FIREBASE_SERVICE_ACCOUNT` = service-account JSON (easiest: run `firebase init hosting:github`, which creates it for you).
+4. Add your Firebase URLs (`https://hiresphere-cs455.web.app`, `https://hiresphere-cs455.firebaseapp.com`) to `CORS_ORIGINS` in `backend/.env` on the VM, then `docker compose --env-file backend/.env --profile prod up -d`.
 
-## Method 3: Traditional Linux VPS (Ubuntu + Nginx + Systemd)
+### Local development
 
-This approach provides enterprise-level control over a Virtual Private Server (AWS EC2, DigitalOcean Droplet, Linode, Hetzner, etc.).
-
-### Step 1: Initial Server Setup (Ubuntu 22.04 / 24.04 LTS)
-SSH into your server and update system packages:
 ```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3-pip python3-venv nginx postgresql postgresql-contrib git curl
+docker compose up -d --build     # API + PostgreSQL + SeaweedFS (see README)
 ```
 
-### Step 2: Configure PostgreSQL Database
-```bash
-sudo -u postgres psql
-```
-Inside the PostgreSQL prompt:
-```sql
-CREATE DATABASE recruitment_db;
-CREATE USER hiresphere WITH ENCRYPTED PASSWORD 'StrongPassword123!';
-GRANT ALL PRIVILEGES ON DATABASE recruitment_db TO hiresphere;
-\q
-```
-
-### Step 3: Deploy Application Code
-```bash
-# Create application directory
-sudo mkdir -p /var/www/hiresphere
-sudo chown -R $USER:$USER /var/www/hiresphere
-
-# Extract or copy your project files into /var/www/hiresphere
-cd /var/www/hiresphere
-# (Upload recruitment_platform contents here)
-
-# Create Python virtual environment
-cd /var/www/hiresphere/backend
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-pip install psycopg2-binary
-```
-
-### Step 4: Configure Environment & Seed Data
-Create `/var/www/hiresphere/backend/.env`:
-```bash
-cat << 'EOF' > /var/www/hiresphere/backend/.env
-DATABASE_URL=postgresql://hiresphere:StrongPassword123!@localhost:5432/recruitment_db
-SECRET_KEY=9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f
-PORT=8000
-EOF
-```
-
-Run initial database seeding:
-```bash
-source venv/bin/activate
-python -c "from app.seed import seed_database; seed_database()"
-```
-
-### Step 5: Create Systemd Background Service
-Create the service configuration:
-```bash
-sudo nano /etc/systemd/system/hiresphere.service
-```
-Paste the following:
-```ini
-[Unit]
-Description=HireSphere FastAPI Application Server
-After=network.target postgresql.service
-
-[Service]
-User=www-data
-Group=www-data
-WorkingDirectory=/var/www/hiresphere/backend
-EnvironmentFile=/var/www/hiresphere/backend/.env
-ExecStart=/var/www/hiresphere/backend/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 4
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Set permissions, enable, and start the service:
-```bash
-sudo chown -R www-data:www-data /var/www/hiresphere
-sudo systemctl daemon-reload
-sudo systemctl enable hiresphere
-sudo systemctl start hiresphere
-sudo systemctl status hiresphere
-```
-
-### Step 6: Configure Nginx Reverse Proxy & File Upload Limits
-Edit `/etc/nginx/sites-available/hiresphere`:
-```bash
-sudo nano /etc/nginx/sites-available/hiresphere
-```
-Paste the configuration:
-```nginx
-server {
-    listen 80;
-    server_name yourdomain.com www.yourdomain.com; # Or your server IP
-
-    client_max_body_size 10M; # Allows 5 MB PDF uploads + overhead
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-Enable the Nginx site and test configuration:
-```bash
-sudo ln -s /etc/nginx/sites-available/hiresphere /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-```
-
-### Step 7: Enable Free SSL with Let's Encrypt Certbot
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
-```
-Certbot will automatically install SSL certificates and set up automated renewals!
-
----
-
-## Method 4: Campus LAN / Local Server Deployment
-
-To run HireSphere within a college lab, campus intranet, or on a Windows local server accessible by other devices on the same Wi-Fi/LAN:
-
-### Step 1: Find Server's Local IP Address
-- **On Windows:** Open PowerShell, run `ipconfig`. Look for `IPv4 Address` (e.g., `192.168.1.100`).
-- **On Linux/Mac:** Run `hostname -I` or `ifconfig`.
-
-### Step 2: Start the Server on `0.0.0.0`
-The backend script is already configured to bind to `0.0.0.0:8000`, which listens on all network interfaces!
-Run:
-```cmd
-run.bat
-```
-or
-```bash
-python backend/main.py
-```
-
-### Step 3: Open Firewall Port 8000 (Windows)
-If other devices cannot connect, allow port 8000 through the Windows Firewall:
-```powershell
-New-NetFirewallRule -DisplayName "HireSphere Web Server" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow
-```
-
-### Step 4: Access From Any Device
-Students, recruiters, and admins on the same network can open their browser and visit:
-```
-http://192.168.1.100:8000
-```
-*(Replace `192.168.1.100` with your server's actual IP address)*
-
----
-
-## Method 5: GitHub Pages Frontend Deployment
-
-> [!IMPORTANT]
-> **Understanding Static Hosting vs. Full-Stack:**
-> GitHub Pages is a **static web host** (HTML, CSS, JS only). It **cannot run Python/FastAPI or database processes**.
-> However, you can deploy the React frontend on GitHub Pages, and it will:
-> 1. Run seamlessly in **Interactive Demo Mode** (with built-in offline simulation of ATS scoring, applications, and slots) so your repository link works immediately.
-> 2. Connect to any live backend (e.g. deployed on Render, Railway, or your VPS) whenever you configure the Backend URL.
-
-### Automated 1-Click Deployment via GitHub Actions
-
-This repository already includes `.github/workflows/deploy.yml`. Follow these 3 steps:
-
-#### Step 1: Push Repository to GitHub
-Make sure your commit includes the `.github/workflows/deploy.yml` file:
-```bash
-git add .
-git commit -m "Add GitHub Pages automated workflow"
-git push origin main
-```
-
-#### Step 2: Enable GitHub Pages in Your Repository Settings
-1. Go to your GitHub repository in your web browser.
-2. Click **Settings** (tab at the top).
-3. In the left sidebar, click **Pages** (under the "Code and automation" section).
-4. Under **Build and deployment** → **Source**, change from *"Deploy from a branch"* to:
-   👉 **`GitHub Actions`**
-5. Save. That's it!
-
-#### Step 3: View Your Live Site
-1. Click the **Actions** tab at the top of your GitHub repository.
-2. You will see the **Deploy Frontend to GitHub Pages** workflow running.
-3. Once completed (green checkmark), your live URL will appear (e.g., `https://<your-username>.github.io/<repo-name>/`).
-4. Click your link and explore the application!
-
-#### Step 4: (Optional) Connect to a Live Backend Server
-In the live website on GitHub Pages:
-- Look at the top demo bar: click **⚙️ Backend: Auto / Demo**.
-- Enter your live FastAPI backend URL (e.g. `https://hiresphere-api.onrender.com`).
-- The frontend will immediately route all live authentication, ATS scoring, and interview slot bookings to your production server!
+PostgreSQL and SeaweedFS (S3) are required everywhere (there is no SQLite or local-disk mode). Without Docker for the API, run `docker compose up -d db storage`, copy `backend/.env.example` to `backend/.env`, uncomment the local `DATABASE_URL`/`MINIO_*` lines and run `python main.py`.
 
 ---
 
@@ -358,8 +121,10 @@ In the live website on GitHub Pages:
 - [ ] **Interview Booking & Concurrency:** Verify candidate can book an interview slot and reschedule atomically.
 - [ ] **Direct Chat:** Verify sending text messages between applicant and recruiter.
 - [ ] **Hold/Suspension Overlay:** Test deactivating a recruiter from the admin console and ensure the candidate's view reflects the hold message while preserving application state.
-- [ ] **Database Backups:** Configure daily backups of PostgreSQL or `recruitment.db` via cron:
+- [ ] **Database Backups:** Configure daily backups of PostgreSQL and the storage volume via cron:
   ```bash
   # Daily postgres backup at 2 AM
-  0 2 * * * pg_dump -U hiresphere recruitment_db > /backup/db_$(date +\%F).sql
+  0 2 * * * docker compose -f /home/ubuntu/hiresphere/docker-compose.yml exec -T db pg_dump -U postgres recruitment_db > /backup/db_$(date +\%F).sql
+  # S3 data lives in the storage_data volume: snapshot or archive it as well
   ```
+- [ ] **JWT lockdown:** `curl https://<api>/api/files/resumes/x.pdf` returns 401.

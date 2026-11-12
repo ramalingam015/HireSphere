@@ -1,3 +1,4 @@
+import secrets
 import base64
 import json
 import hmac
@@ -77,6 +78,10 @@ def _builtin_jwt_decode(token: str, secret: str) -> dict:
             raise CustomJWTError('Token has expired')
     return payload
 
+def new_verification_code() -> str:
+    """Cryptographically secure 6-digit email verification code."""
+    return f"{secrets.randbelow(900000) + 100000}"
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
         return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
@@ -125,13 +130,23 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user_id is None:
         raise credentials_exception
 
-    user = db.query(User).filter(User.id == int(user_id)).first()
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        raise credentials_exception
+
+    user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise credentials_exception
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is deactivated"
+        )
+    if not user.is_email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified. Verify your email to use the platform."
         )
     return user
 

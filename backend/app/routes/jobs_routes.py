@@ -1,15 +1,16 @@
 import os
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 
+from app import storage
 from app.database import get_db
 from app.models import Job, JobSkill, User, UserRole, RecruiterStatus, Application
 from app.schemas import JobCreate, JobUpdate, JobOut, SkillItem, AIMatchInfo
 from app.auth import get_current_user, require_approved_recruiter
-from app.services.ai_service import parse_natural_language_search, recommend_and_rank_jobs
+from app.services.ai_service import parse_search_with_feedback, recommend_and_rank_jobs
 from app.services.ats_service import extract_text_from_pdf
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
@@ -52,6 +53,7 @@ def ai_job_search_and_recommendations(
     job_type: Optional[str] = Query(None, description="Job type filter"),
     skill: Optional[str] = Query(None, description="Required skill filter"),
     rank_by_resume: bool = Query(True, description="Rank jobs using candidate profile resume and skills"),
+    response: Response = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -91,10 +93,11 @@ def ai_job_search_and_recommendations(
             .order_by(Application.created_at.desc())
             .first()
         )
-        if latest_app and latest_app.resume_file_path and os.path.exists(latest_app.resume_file_path):
+        if latest_app and latest_app.resume_file_path:
             try:
-                with open(latest_app.resume_file_path, "rb") as rf:
-                    resume_text = extract_text_from_pdf(rf.read())
+                stored_pdf = storage.read_resume(latest_app.resume_file_path)
+                if stored_pdf:
+                    resume_text = extract_text_from_pdf(stored_pdf)
                     # Cache in user profile for faster future recommendations
                     current_user.resume_text = resume_text
                     if not current_user.resume_filename:
@@ -105,6 +108,12 @@ def ai_job_search_and_recommendations(
             except Exception:
                 pass
 
+    # FR-SCH-02..04: interpret the natural-language query once, validate it, and report anything rejected.
+    parsed_query, search_issues = parse_search_with_feedback(q) if q else ({}, [])
+    if search_issues and response is not None:
+        notice = "; ".join(search_issues)[:400].encode("ascii", "ignore").decode()
+        response.headers["X-AI-Search-Notice"] = notice
+
     # Score, filter, and rank using AI Service
     ranked = recommend_and_rank_jobs(
         jobs=all_jobs,
@@ -114,7 +123,8 @@ def ai_job_search_and_recommendations(
         query=q or "",
         location_filter=location or "",
         job_type_filter=job_type or "",
-        skill_filter=skill or ""
+        skill_filter=skill or "",
+        parsed_query=parsed_query,
     )
 
     # Format output with AIMatchInfo attached

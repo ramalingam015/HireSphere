@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { apiRequest, API_BASE } from "../api/client";
+import { apiRequest, fetchResumeBlob } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { 
   FileText, CheckCircle2, XCircle, AlertCircle, RefreshCw, 
@@ -24,10 +24,7 @@ export const ATSModal = ({ job, onClose, onAppliedSuccess }) => {
     setErrorMsg("");
     setShowAiFailurePrompt(false);
     try {
-      const url = `${API_BASE}/uploads/resumes/${user.resume_file_path.split(/[\\/]/).pop()}`;
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("Could not download profile resume.");
-      const blob = await response.blob();
+      const blob = await fetchResumeBlob(user.resume_file_path);
       const profileFile = new File([blob], user.resume_filename || "Profile_Resume.pdf", { type: "application/pdf" });
       setFile(profileFile);
 

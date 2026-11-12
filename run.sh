@@ -1,31 +1,26 @@
 #!/usr/bin/env bash
+# Starts the local backend stack (API + PostgreSQL + S3 storage) with Docker Compose.
 set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
-echo "====================================================================="
-echo "  CS455 Deliverable 1: HireSphere Recruitment & Interview Platform"
-echo "====================================================================="
+echo "Starting API + PostgreSQL + S3 storage..."
+ENV_FILE=(); [ -f backend/.env ] && ENV_FILE=(--env-file backend/.env)
+docker compose "${ENV_FILE[@]}" up -d --build
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/backend"
+echo "Waiting for the API..."
+for i in $(seq 1 40); do
+  curl -sf http://localhost:8000/api/health >/dev/null && break
+  sleep 3
+done
 
-echo "[1/3] Checking dependencies..."
-pip install -r requirements.txt --quiet
+cat <<'MSG'
 
-echo "[2/3] Initializing Database & Seed Data..."
-python -c "from app.seed import seed_database; seed_database()"
+  API:            http://localhost:8000   (Swagger: /docs)
+  PostgreSQL:     localhost:5432          (postgres / postgrespassword)
 
-echo "[3/3] Starting Server at http://localhost:8000 ..."
-echo ""
-echo "====================================================================="
-echo "  System running at: http://localhost:8000"
-echo "  API Documentation: http://localhost:8000/docs"
-echo ""
-echo "  Demo Credentials:"
-echo "    - Student:   student@university.edu / student123"
-echo "    - Recruiter: recruiter@techcorp.com / recruiter123"
-echo "    - Pending:   pending@startup.io / pending123"
-echo "    - Admin:     admin@recruit.com / admin123"
-echo "====================================================================="
-echo ""
+  Frontend:       cd frontend && VITE_API_BASE=http://localhost:8000 npm run dev
+  Stop:           docker compose down      (add -v to also wipe data)
 
-python main.py
+  Demo accounts: student@university.edu / student123, recruiter@techcorp.com / recruiter123,
+                 admin@recruit.com / admin123
+MSG

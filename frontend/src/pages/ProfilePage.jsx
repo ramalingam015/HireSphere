@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { apiRequest, API_BASE } from "../api/client";
+import { apiRequest } from "../api/client";
+import { ResumeViewerModal } from "../components/ResumeViewerModal";
 import { 
   User, CheckCircle2, FileText, UploadCloud, Trash2, 
   ExternalLink, Sparkles, AlertCircle, RefreshCw 
@@ -8,6 +9,7 @@ import {
 
 export const ProfilePage = () => {
   const { user, refreshUser } = useAuth();
+  const [viewingResume, setViewingResume] = useState(false);
   const [fullName, setFullName] = useState(user?.full_name || "");
   const [headline, setHeadline] = useState(user?.headline || "");
   const [bio, setBio] = useState(user?.bio || "");
@@ -294,15 +296,14 @@ export const ProfilePage = () => {
 
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               {user.resume_file_path && (
-                <a 
-                  href={`${API_BASE}/uploads/resumes/${user.resume_file_path.split(/[\\/]/).pop()}`}
-                  target="_blank" 
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  onClick={() => setViewingResume(true)}
                   className="btn btn-secondary btn-sm"
                   style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
                 >
                   <ExternalLink size={13} /> View PDF
-                </a>
+                </button>
               )}
               <button 
                 type="button" 
@@ -377,6 +378,13 @@ export const ProfilePage = () => {
           </div>
         </div>
       </div>
+      {viewingResume && user?.resume_file_path && (
+        <ResumeViewerModal
+          resumePath={user.resume_file_path}
+          filename={user.resume_filename}
+          onClose={() => setViewingResume(false)}
+        />
+      )}
     </div>
   );
 };

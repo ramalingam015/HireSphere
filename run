@@ -1,0 +1,1 @@
+docker compose --env-file backend/.env up -d --build --force-recreate api

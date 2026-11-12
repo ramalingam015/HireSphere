@@ -1,16 +1,36 @@
-# React + Vite
+# HireSphere Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite single-page app for the HireSphere recruitment platform (Student, Recruiter and Admin portals).
 
-Currently, two official plugins are available:
+## Develop
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+npm run dev        # http://localhost:5173
+npm run lint
+npm run build      # outputs dist/
+```
 
-## React Compiler
+## Backend connection
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+API calls go to `VITE_API_BASE` (see [.env.example](.env.example); copy it to `.env`). Empty means same origin, which works with the Vite dev proxy to `localhost:8000`.
 
-## Expanding the Oxlint configuration
+**Auth:** JWT in `localStorage`, attached by `apiRequest`; a 401 or an expired token signs the user out (`UNAUTHORIZED_EVENT`). Tab access per role lives in `src/auth/access.js` (the backend enforces the real rules).
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+```bash
+# run against the local docker compose backend
+VITE_API_BASE=http://localhost:8000 npm run dev
+```
+
+Resumes are fetched from `GET /api/files/resumes/<file>` with the JWT (`fetchResumeBlob` / `openResumeInNewTab` in `src/api/client.js`), never via plain links; the backend stores them in S3 storage (SeaweedFS).
+
+## Deploy (Firebase Hosting)
+
+Project `hiresphere-cs455`, configured in `firebase.json` / `.firebaserc` (serves `dist/`, SPA rewrite to `index.html`).
+
+```bash
+VITE_API_BASE=https://<your-api-host> npm run build
+firebase deploy --only hosting
+```
+
+CI deploys automatically on push to `main` (`.github/workflows/deploy.yml`, uses the `VITE_API_BASE` repo variable and `FIREBASE_SERVICE_ACCOUNT` secret). The API's `CORS_ORIGINS` must include the Firebase URLs.

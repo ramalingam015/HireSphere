@@ -11,9 +11,10 @@ export default defineConfig({
     watch: {
       usePolling: true,
     },
+    // Only used when VITE_API_BASE is empty. Override when the API runs elsewhere
+    // (e.g. VITE_PROXY_TARGET=http://web:8000 inside docker).
     proxy: {
-      '/api': 'http://web:8000',
-      '/uploads': 'http://web:8000',
+      '/api': process.env.VITE_PROXY_TARGET || 'http://localhost:8000',
     },
   },
 })

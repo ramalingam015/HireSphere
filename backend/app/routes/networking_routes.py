@@ -66,6 +66,11 @@ def request_connection(
     ).first()
 
     if existing:
+        # A pending request from the other side, answered by "connecting back", is an acceptance.
+        if existing.status == "PENDING" and existing.receiver_id == current_user.id:
+            existing.status = "ACCEPTED"
+            db.commit()
+            db.refresh(existing)
         return {
             "id": existing.id,
             "requester_id": existing.requester_id,
@@ -78,7 +83,7 @@ def request_connection(
     conn = Connection(
         requester_id=current_user.id,
         receiver_id=user_id,
-        status="ACCEPTED"  # Auto-accept for smooth demo/recruiting connectivity
+        status="PENDING"  # FR-NET-01: the receiver must accept before messaging is allowed
     )
     db.add(conn)
     db.commit()
@@ -91,6 +96,36 @@ def request_connection(
         "created_at": conn.created_at,
         "other_user": target
     }
+
+def _respond_to_request(conn_id: int, new_status: str, db: Session, current_user: User):
+    conn = db.query(Connection).filter(Connection.id == conn_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection request not found")
+    if conn.receiver_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the recipient can respond to a connection request")
+    if conn.status != "PENDING":
+        raise HTTPException(status_code=409, detail=f"Request is already {conn.status.lower()}")
+    conn.status = new_status
+    db.commit()
+    db.refresh(conn)
+    other = db.query(User).filter(User.id == conn.requester_id).first()
+    return {
+        "id": conn.id, "requester_id": conn.requester_id, "receiver_id": conn.receiver_id,
+        "status": conn.status, "created_at": conn.created_at, "other_user": other,
+    }
+
+
+@router.post("/connections/{conn_id}/accept", response_model=ConnectionOut)
+def accept_connection(conn_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """FR-NET-01: accept a pending connection request."""
+    return _respond_to_request(conn_id, "ACCEPTED", db, current_user)
+
+
+@router.post("/connections/{conn_id}/reject", response_model=ConnectionOut)
+def reject_connection(conn_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """FR-NET-01: reject a pending connection request."""
+    return _respond_to_request(conn_id, "REJECTED", db, current_user)
+
 
 @router.delete("/connections/{conn_id}")
 def remove_connection(
@@ -139,7 +174,7 @@ def send_message(
     current_user: User = Depends(get_current_user)
 ):
     """
-    FR-NET-02: Direct messaging between connections or recruiter & candidate.
+    FR-NET-02: Direct messaging between accepted connections only.
     FR-NET-03: Text-only messaging.
     """
     if msg_in.recipient_id == current_user.id:
@@ -149,7 +184,7 @@ def send_message(
     if not target:
         raise HTTPException(status_code=404, detail="Recipient not found")
 
-    # Verify connection OR recruiter-applicant relationship
+    # FR-NET-02: direct messaging is limited to accepted connections.
     is_connected = db.query(Connection).filter(
         or_(
             and_(Connection.requester_id == current_user.id, Connection.receiver_id == target.id),
@@ -157,23 +192,11 @@ def send_message(
         ),
         Connection.status == "ACCEPTED"
     ).first() is not None
-
-    # Check if they are recruiter & applicant for an interview
-    is_recruiter_applicant = db.query(Application).filter(
-        or_(
-            and_(Application.candidate_id == current_user.id, Application.job.has(recruiter_id=target.id)),
-            and_(Application.candidate_id == target.id, Application.job.has(recruiter_id=current_user.id))
+    if not is_connected:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="FR-NET-02: Direct messaging is limited to accepted connections. Send a connection request first."
         )
-    ).first() is not None
-
-    if not is_connected and not is_recruiter_applicant and current_user.role != "admin":
-        # Allow sending message and auto-create connection so candidates & recruiters can chat
-        conn = Connection(
-            requester_id=current_user.id,
-            receiver_id=target.id,
-            status="ACCEPTED"
-        )
-        db.add(conn)
 
     clean_content = msg_in.content.strip()
     if not clean_content:

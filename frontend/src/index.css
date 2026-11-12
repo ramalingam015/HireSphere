@@ -131,39 +131,6 @@ input, select, textarea {
 .badge-recruiter { background: #fef3c7; color: #b45309; }
 .badge-admin { background: #fee2e2; color: #b91c1c; }
 
-/* Demo quick switcher */
-.demo-bar {
-  background: #1e293b;
-  color: #f8fafc;
-  padding: 0.4rem 1rem;
-  font-size: 0.8rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.demo-buttons {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-}
-
-.btn-demo {
-  background: #334155;
-  color: #f8fafc;
-  border: 1px solid #475569;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  transition: background 0.15s;
-}
-
-.btn-demo:hover {
-  background: #475569;
-}
 
 /* Cards & Grid */
 .card {

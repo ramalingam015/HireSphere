@@ -98,13 +98,9 @@ def reset_all_data():
         print("  ✓ Demo accounts seeded for Quick Switcher (Alex Rivera, Elena Rostova, Marcus Vance, Admin Portal)")
 
         print("[3/3] Clearing uploaded resume files...")
-        cleaned_files = 0
-        if config.UPLOAD_DIR.exists():
-            for f in config.UPLOAD_DIR.iterdir():
-                if f.is_file():
-                    f.unlink()
-                    cleaned_files += 1
-        print(f"  ✓ Cleaned {cleaned_files} uploaded resume file(s).")
+        from app import storage
+        storage.delete_all_resumes()
+        print("  ✓ Cleared stored resumes from S3 storage.")
 
         print("\n=======================================================")
         print("SUCCESS! HireSphere has been reset to brand-new state.")

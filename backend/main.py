@@ -1,16 +1,15 @@
-import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base
-from app.config import UPLOAD_DIR
+from app.config import CORS_ORIGINS
+from app import storage
 from app.migrations import run_auto_migrations
 from app.seed import seed_database
 from app.routes import (
     auth_routes, jobs_routes, applications_routes,
-    interviews_routes, networking_routes, admin_routes
+    interviews_routes, networking_routes, admin_routes, files_routes
 )
 
 @asynccontextmanager
@@ -18,6 +17,7 @@ async def lifespan(app: FastAPI):
     # Startup: ensure tables created and initial demo seed runs
     Base.metadata.create_all(bind=engine)
     run_auto_migrations()
+    storage.ensure_bucket()  # fail fast if the S3 storage is unreachable
     try:
         seed_database()
     except Exception as e:
@@ -34,15 +34,12 @@ app = FastAPI(
 # CORS Middleware for frontend React access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-AI-Search-Notice"],
 )
-
-# Mount uploaded resume files
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR.parent)), name="uploads")
 
 # Include Routers
 app.include_router(auth_routes.router)
@@ -51,9 +48,8 @@ app.include_router(applications_routes.router)
 app.include_router(interviews_routes.router)
 app.include_router(networking_routes.router)
 app.include_router(admin_routes.router)
+app.include_router(files_routes.router)
 
-from pathlib import Path
-FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 @app.get("/api/health")
 def health_check():
@@ -64,15 +60,12 @@ def health_check():
         "roles": ["candidate", "recruiter", "admin"]
     }
 
-if FRONTEND_DIST.exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
-else:
-    @app.get("/")
-    def root():
-        return {
-            "message": "Recruitment & ATS Platform Backend is running. Run `npm run dev` in frontend for UI.",
-            "docs_url": "/docs"
-        }
+@app.get("/")
+def root():
+    return {
+        "message": "HireSphere API is running. The React frontend is hosted separately (Firebase Hosting).",
+        "docs_url": "/docs"
+    }
 
 if __name__ == "__main__":
     import uvicorn

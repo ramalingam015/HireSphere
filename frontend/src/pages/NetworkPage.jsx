@@ -33,6 +33,40 @@ export const NetworkPage = ({ onOpenChatWith }) => {
     }
   };
 
+  const connectionWith = (userId) =>
+    connections.find((c) => c.other_user?.id === userId);
+
+  const handleConnect = async (userId) => {
+    try {
+      await apiRequest(`/api/networking/connect/${userId}`, { method: "POST" });
+      await fetchConnections();
+    } catch (err) {
+      alert("Could not send connection request: " + err.message);
+    }
+  };
+
+  const respondToRequest = async (connId, action) => {
+    try {
+      await apiRequest(`/api/networking/connections/${connId}/${action}`, { method: "POST" });
+      await fetchConnections();
+    } catch (err) {
+      alert(`Could not ${action} request: ` + err.message);
+    }
+  };
+
+  const removeConnection = async (connId) => {
+    try {
+      await apiRequest(`/api/networking/connections/${connId}`, { method: "DELETE" });
+      await fetchConnections();
+    } catch (err) {
+      alert("Could not remove connection: " + err.message);
+    }
+  };
+
+  const incoming = connections.filter((c) => c.status === "PENDING" && c.receiver_id === user?.id);
+  const outgoing = connections.filter((c) => c.status === "PENDING" && c.requester_id === user?.id);
+  const accepted = connections.filter((c) => c.status === "ACCEPTED");
+
   useEffect(() => {
     Promise.all([fetchFeed(), fetchConnections()]).finally(() => setLoading(false));
   }, []);
@@ -148,6 +182,20 @@ export const NetworkPage = ({ onOpenChatWith }) => {
                         {post.author?.headline || post.author?.role?.toUpperCase()} • {new Date(post.created_at).toLocaleDateString()}
                       </div>
                     </div>
+                    {post.author && post.author.id !== user?.id && (() => {
+                      const conn = connectionWith(post.author.id);
+                      if (!conn) {
+                        return (
+                          <button className="btn btn-secondary btn-sm" style={{ marginLeft: "0.5rem", fontSize: "0.7rem" }}
+                            onClick={() => handleConnect(post.author.id)}>
+                            + Connect
+                          </button>
+                        );
+                      }
+                      const label = conn.status === "ACCEPTED" ? "Connected"
+                        : conn.status === "PENDING" ? "Pending" : "Declined";
+                      return <span style={{ marginLeft: "0.5rem", fontSize: "0.7rem", color: "var(--text-muted)" }}>{label}</span>;
+                    })()}
                   </div>
 
                   {/* Admin Moderation Action (FR-ADM-08) */}
@@ -233,13 +281,35 @@ export const NetworkPage = ({ onOpenChatWith }) => {
             <Users size={16} /> My Professional Network
           </h3>
 
-          {connections.length === 0 ? (
+          {incoming.length > 0 && (
+            <div style={{ marginBottom: "1rem" }}>
+              <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", marginBottom: "0.4rem" }}>
+                PENDING REQUESTS ({incoming.length})
+              </div>
+              {incoming.map((c) => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.5rem", border: "1px solid var(--border)", borderRadius: "8px", marginBottom: "0.4rem" }}>
+                  <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>{c.other_user?.full_name}</span>
+                  <span style={{ display: "flex", gap: "0.3rem" }}>
+                    <button className="btn btn-primary btn-sm" style={{ fontSize: "0.7rem" }} onClick={() => respondToRequest(c.id, "accept")}>Accept</button>
+                    <button className="btn btn-secondary btn-sm" style={{ fontSize: "0.7rem" }} onClick={() => respondToRequest(c.id, "reject")}>Reject</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {outgoing.length > 0 && (
+            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+              Waiting for a response from: {outgoing.map((c) => c.other_user?.full_name).join(", ")}
+            </p>
+          )}
+
+          {accepted.length === 0 ? (
             <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-              No connections established yet. Connect with recruiters and peers to unlock direct messaging.
+              No connections yet. Use "+ Connect" on a post; once the other person accepts you can message each other.
             </p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {connections.map((c) => (
+              {accepted.map((c) => (
                 <div 
                   key={c.id}
                   style={{
@@ -268,6 +338,14 @@ export const NetworkPage = ({ onOpenChatWith }) => {
                     title="Direct text chat (FR-NET-02)"
                   >
                     <MessageSquare size={12} /> Chat
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ padding: "0.25rem 0.5rem", fontSize: "0.75rem", marginLeft: "0.3rem" }}
+                    onClick={() => removeConnection(c.id)}
+                    title="Remove connection"
+                  >
+                    Remove
                   </button>
                 </div>
               ))}

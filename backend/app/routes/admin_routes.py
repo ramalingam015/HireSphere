@@ -10,6 +10,7 @@ from app.models import (
 from app.schemas import UserOut, JobOut, ApplicationOut, RecruiterActionRequest, PostOut, ResetDatabaseRequest
 from app.auth import require_admin, get_password_hash
 import app.config as config
+from app import storage
 
 router = APIRouter(prefix="/api/admin", tags=["Administration"])
 
@@ -187,15 +188,42 @@ def moderate_post(
     db.commit()
     return {"message": f"Post moderation action '{action}' executed."}
 
+@router.post("/comments/{comment_id}/moderate")
+def moderate_comment(
+    comment_id: int,
+    action: str = "hide",  # hide, unhide, delete
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """FR-ADM-08: Administrators can hide or delete inappropriate comments."""
+    comment = db.query(PostComment).filter(PostComment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    if action not in ("hide", "unhide", "delete"):
+        raise HTTPException(status_code=400, detail="action must be hide, unhide or delete")
+
+    if action == "delete":
+        db.delete(comment)
+    else:
+        comment.is_hidden = (action == "hide")
+    db.add(AuditLog(
+        user_id=admin.id, action=f"COMMENT_{action.upper()}", resource_type="COMMENT",
+        resource_id=str(comment_id), details=f"Comment moderation: {action}"
+    ))
+    db.commit()
+    return {"message": f"Comment moderation action '{action}' executed."}
+
+
 @router.post("/reset-database")
 def reset_database_endpoint(
     req: ResetDatabaseRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
 ):
     """
     Wipes all platform data (users, jobs, applications, interviews, messages, posts, resumes)
     and re-initializes a clean fresh admin account.
-    Protected by ADMIN_REGISTRATION_KEY.
+    Requires an administrator JWT *and* the ADMIN_REGISTRATION_KEY.
     """
     if req.admin_secret_key.strip() != config.ADMIN_REGISTRATION_KEY:
         raise HTTPException(
@@ -272,10 +300,7 @@ def reset_database_endpoint(
 
     # Clean uploaded resume files
     try:
-        if config.UPLOAD_DIR.exists():
-            for f in config.UPLOAD_DIR.iterdir():
-                if f.is_file():
-                    f.unlink()
+        storage.delete_all_resumes()
     except Exception as e:
         print(f"[RESET DB] Warning cleaning resumes: {e}")
 

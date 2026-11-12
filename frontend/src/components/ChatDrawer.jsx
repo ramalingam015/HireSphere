@@ -7,6 +7,8 @@ export const ChatDrawer = ({ targetUser, onClose }) => {
   const [inputVal, setInputVal] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [notConnected, setNotConnected] = useState(false);
+  const [requestSent, setRequestSent] = useState(false);
   const bottomRef = useRef(null);
 
   const fetchMessages = async () => {
@@ -47,9 +49,23 @@ export const ChatDrawer = ({ targetUser, onClose }) => {
       setMessages([...messages, newMsg]);
       setInputVal("");
     } catch (err) {
-      alert("Failed to send message: " + err.message);
+      if (err.status === 403) {
+        // FR-NET-02: messaging needs an accepted connection
+        setNotConnected(true);
+      } else {
+        alert("Failed to send message: " + err.message);
+      }
     } finally {
       setSending(false);
+    }
+  };
+
+  const requestConnection = async () => {
+    try {
+      await apiRequest(`/api/networking/connect/${targetUser.id}`, { method: "POST" });
+      setRequestSent(true);
+    } catch (err) {
+      alert("Could not send connection request: " + err.message);
     }
   };
 
@@ -103,6 +119,19 @@ export const ChatDrawer = ({ targetUser, onClose }) => {
           <Video size={11} /> Google Meet <ExternalLink size={10} />
         </a>
       </div>
+
+      {notConnected && (
+        <div style={{ background: "#fffbeb", borderBottom: "1px solid #fde68a", padding: "0.5rem 0.75rem", fontSize: "0.75rem", color: "#92400e" }}>
+          {requestSent
+            ? `Connection request sent. You can message ${targetUser.full_name} once they accept.`
+            : `You can only message accepted connections.`}
+          {!requestSent && (
+            <button className="btn btn-primary btn-sm" style={{ marginLeft: "0.5rem", fontSize: "0.7rem" }} onClick={requestConnection}>
+              Send connection request
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Messages Feed */}
       <div className="chat-messages">

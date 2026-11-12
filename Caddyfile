@@ -1,0 +1,8 @@
+# Terminates HTTPS (Let's Encrypt, automatic) and proxies to the API container.
+# Firebase Hosting is HTTPS, so the browser requires the API to be HTTPS too.
+{$API_DOMAIN} {
+	request_body {
+		max_size 10MB
+	}
+	reverse_proxy api:8000
+}

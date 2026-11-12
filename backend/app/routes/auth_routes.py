@@ -1,4 +1,4 @@
-import random
+import hmac
 from datetime import datetime, timedelta
 import os
 import re
@@ -7,19 +7,27 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.config import ADMIN_REGISTRATION_KEY, UPLOAD_DIR, MAX_RESUME_SIZE_BYTES
+from app.config import ADMIN_REGISTRATION_KEY, MAX_RESUME_SIZE_BYTES
+from app import storage
 from app.services.ats_service import extract_text_from_pdf
 from app.services.ai_service import extract_skills_from_text
 from app.models import User, UserRole, RecruiterStatus
 from app.schemas import (
     UserCreate, UserLogin, UserOut, UserProfileUpdate, Token,
     EmailVerificationRequest, ResendVerificationRequest, EmailVerificationResponse,
-    TestEmailRequest, EmailConfigRequest, DemoLoginRequest
+    TestEmailRequest
 )
-from app.auth import get_password_hash, verify_password, create_access_token, get_current_user
-from app.email_service import send_verification_email, get_email_service_status, update_email_configuration
+from app.auth import (
+    get_password_hash, verify_password, create_access_token, get_current_user, require_admin,
+    new_verification_code,
+)
+from app.email_service import send_verification_email, get_email_service_status, user_facing_detail
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+
+MAX_VERIFICATION_ATTEMPTS = 5
+RESEND_COOLDOWN_SECONDS = 60
+VERIFICATION_TTL = timedelta(hours=24)
 
 @router.post("/register")
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
@@ -42,8 +50,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     initial_status = RecruiterStatus.PENDING if user_in.role == UserRole.RECRUITER else RecruiterStatus.APPROVED
 
     # 3. Generate 6-Digit Email Verification Code
-    verification_code = str(random.randint(100000, 999999))
-    verification_expiry = datetime.utcnow() + timedelta(hours=24)
+    verification_code = new_verification_code()
+    verification_expiry = datetime.utcnow() + VERIFICATION_TTL
 
     new_user = User(
         email=user_in.email,
@@ -68,18 +76,18 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     # Send verification email via SMTP or direct API
     email_sent, email_detail = send_verification_email(new_user.email, verification_code, new_user.full_name)
 
-    token = create_access_token({"sub": str(new_user.id), "role": new_user.role})
+    # No JWT yet: the account must verify its email first (POST /verify-email issues the token).
     return {
-        "access_token": token,
+        "access_token": None,
         "token_type": "bearer",
         "user": new_user,
         "email_sent": email_sent,
-        "email_detail": email_detail,
+        "email_detail": user_facing_detail(email_sent, email_detail),
         "dev_code": None,
         "message": (
             f"Account created! A 6-digit verification code has been emailed to {new_user.email}."
             if email_sent else
-            f"Account created. {email_detail}"
+            f"Account created. {user_facing_detail(email_sent, email_detail)}"
         )
     }
 
@@ -105,7 +113,24 @@ def verify_email(req: EmailVerificationRequest, db: Session = Depends(get_db)):
             detail="Verification code has expired. Please request a new code."
         )
 
-    if not user.email_verification_code or user.email_verification_code.strip() != req.code.strip():
+    if not user.email_verification_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active verification code. Please request a new code."
+        )
+
+    if not hmac.compare_digest(user.email_verification_code.strip(), req.code.strip()):
+        # Brute-force guard: a 6-digit code must not be guessable with unlimited tries.
+        user.email_verification_attempts = (user.email_verification_attempts or 0) + 1
+        if user.email_verification_attempts >= MAX_VERIFICATION_ATTEMPTS:
+            user.email_verification_code = None
+            user.email_verification_attempts = 0
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many incorrect codes. Please request a new verification code."
+            )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid 6-digit verification code. Please check and try again."
@@ -113,6 +138,7 @@ def verify_email(req: EmailVerificationRequest, db: Session = Depends(get_db)):
 
     user.is_email_verified = True
     user.email_verification_code = None
+    user.email_verification_attempts = 0
     db.commit()
     db.refresh(user)
 
@@ -134,20 +160,31 @@ def resend_verification(req: ResendVerificationRequest, db: Session = Depends(ge
     if user.is_email_verified:
         return {"message": "Email is already verified.", "is_verified": True}
 
-    code = str(random.randint(100000, 999999))
+    # Cooldown: the time the last code was issued is expiry - TTL.
+    if user.email_verification_expiry:
+        issued_at = user.email_verification_expiry - VERIFICATION_TTL
+        wait = RESEND_COOLDOWN_SECONDS - (datetime.utcnow() - issued_at).total_seconds()
+        if wait > 0:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Please wait {int(wait) + 1} seconds before requesting another code."
+            )
+
+    code = new_verification_code()
     user.email_verification_code = code
-    user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
+    user.email_verification_attempts = 0
+    user.email_verification_expiry = datetime.utcnow() + VERIFICATION_TTL
     db.commit()
 
     email_sent, email_detail = send_verification_email(user.email, code, user.full_name)
     return {
         "email_sent": email_sent,
-        "email_detail": email_detail,
+        "email_detail": user_facing_detail(email_sent, email_detail),
         "dev_code": None,
         "message": (
             f"A fresh 6-digit verification code has been dispatched to {user.email}."
             if email_sent else
-            f"{email_detail}"
+            f"{user_facing_detail(email_sent, email_detail)}"
         )
     }
 
@@ -159,11 +196,11 @@ def email_diagnostics():
     return get_email_service_status()
 
 @router.post("/test-email")
-def test_email(req: TestEmailRequest):
+def test_email(req: TestEmailRequest, admin: User = Depends(require_admin)):
     """
     Test real email delivery to an address and receive the exact server response or error.
     """
-    test_code = str(random.randint(100000, 999999))
+    test_code = new_verification_code()
     sent, detail = send_verification_email(req.email.strip(), test_code, "HireSphere Tester")
     return {
         "success": sent,
@@ -171,52 +208,6 @@ def test_email(req: TestEmailRequest):
         "detail": detail,
         "test_code": test_code
     }
-
-@router.post("/configure-email")
-def configure_email(req: EmailConfigRequest, db: Session = Depends(get_db)):
-    """
-    Configures email credentials at runtime and optionally sends a real test email to verify delivery.
-    """
-    update_email_configuration(
-        brevo_api_key=req.brevo_api_key or "",
-        resend_api_key=req.resend_api_key or "",
-        sendgrid_api_key=req.sendgrid_api_key or "",
-        smtp_user=req.smtp_user or "",
-        smtp_password=req.smtp_password or "",
-        smtp_host=req.smtp_host or "smtp.gmail.com",
-        smtp_port=req.smtp_port or 465,
-        from_email=req.from_email or req.smtp_user or ""
-    )
-
-    if req.test_recipient and "@" in req.test_recipient:
-        test_code = str(random.randint(100000, 999999))
-        sent, detail = send_verification_email(req.test_recipient.strip(), test_code, "HireSphere Tester")
-        if sent:
-            pending_user = db.query(User).filter(User.email == req.test_recipient.strip()).first()
-            if pending_user and not pending_user.is_email_verified:
-                pending_user.email_verification_code = test_code
-                pending_user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
-                db.commit()
-
-            return {
-                "success": True,
-                "message": f"Real verification email sent to {req.test_recipient}! Please check your inbox (and Spam folder).",
-                "status": get_email_service_status()
-            }
-        else:
-            return {
-                "success": False,
-                "message": f"Email delivery failed: {detail}",
-                "detail": detail,
-                "status": get_email_service_status()
-            }
-
-    return {
-        "success": True,
-        "message": "Email configuration updated successfully.",
-        "status": get_email_service_status()
-    }
-
 
 @router.post("/login", response_model=Token)
 def login(login_in: UserLogin, db: Session = Depends(get_db)):
@@ -235,127 +226,20 @@ def login(login_in: UserLogin, db: Session = Depends(get_db)):
     # Check if email is verified
     if not user.is_email_verified:
         if not user.email_verification_code:
-            user.email_verification_code = str(random.randint(100000, 999999))
-            user.email_verification_expiry = datetime.utcnow() + timedelta(hours=24)
+            user.email_verification_code = new_verification_code()
+            user.email_verification_expiry = datetime.utcnow() + VERIFICATION_TTL
             db.commit()
         
         email_sent, email_detail = send_verification_email(user.email, user.email_verification_code, user.full_name)
         msg = (
             f"Email not verified. A 6-digit verification code has been emailed to {user.email}. Please check your inbox (and Spam folder) to verify."
             if email_sent else
-            f"Email not verified. ({email_detail}). Please verify your email before logging in."
+            f"Email not verified. ({user_facing_detail(email_sent, email_detail)}). Please verify your email before logging in."
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=msg
         )
-
-    token = create_access_token({"sub": str(user.id), "role": user.role})
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "user": user
-    }
-
-@router.post("/demo-login", response_model=Token)
-def demo_login(req: DemoLoginRequest, db: Session = Depends(get_db)):
-    """
-    Auto-provisions and immediately authenticates demo accounts for CS455 role switching.
-    Guarantees that demo buttons in the Quick Switcher bar NEVER fail with 401 Unauthorized,
-    even after a database wipe or fresh deployment.
-    """
-    role = (req.role or "candidate").strip().lower()
-
-    demo_map = {
-        "admin": {
-            "email": "admin@recruit.com",
-            "password": "admin123",
-            "full_name": "Platform Administrator",
-            "role": UserRole.ADMIN,
-            "status": RecruiterStatus.APPROVED,
-            "company": "HireSphere",
-            "headline": "System Administrator & Compliance Officer",
-            "bio": "Managing talent network integrity and verification.",
-            "location": "Global",
-            "skills": "Administration, Compliance, User Moderation"
-        },
-        "recruiter": {
-            "email": "recruiter@techcorp.com",
-            "password": "recruiter123",
-            "full_name": "Elena Rostova",
-            "role": UserRole.RECRUITER,
-            "status": RecruiterStatus.APPROVED,
-            "company": "CloudScale Systems",
-            "headline": "Lead Technical Recruiter at CloudScale Systems",
-            "bio": "Hiring top distributed systems and backend engineers.",
-            "location": "San Francisco, CA",
-            "skills": "Technical Recruiting, ATS, Interview Scheduling"
-        },
-        "pending_recruiter": {
-            "email": "pending@startup.io",
-            "password": "pending123",
-            "full_name": "Marcus Vance",
-            "role": UserRole.RECRUITER,
-            "status": RecruiterStatus.PENDING,
-            "company": "NextGen AI",
-            "headline": "Founder & Talent Lead at NextGen AI",
-            "bio": "Early stage stealth startup scaling founding engineering team.",
-            "location": "Austin, TX",
-            "skills": "Startups, AI Engineering, Executive Search"
-        },
-        "candidate": {
-            "email": "student@university.edu",
-            "password": "student123",
-            "full_name": "Alex Rivera",
-            "role": UserRole.CANDIDATE,
-            "status": RecruiterStatus.APPROVED,
-            "company": "",
-            "headline": "Computer Science Graduate & Full Stack Developer",
-            "bio": "Recent CS graduate passionate about modern web apps, distributed systems, and React.",
-            "location": "Boston, MA",
-            "skills": "Python, React, TypeScript, FastAPI, PostgreSQL"
-        }
-    }
-
-    target = demo_map.get(role, demo_map["candidate"])
-    user = db.query(User).filter(User.email == target["email"]).first()
-
-    if not user:
-        user = User(
-            email=target["email"],
-            hashed_password=get_password_hash(target["password"]),
-            full_name=target["full_name"],
-            role=target["role"],
-            recruiter_status=target["status"],
-            company=target["company"],
-            headline=target["headline"],
-            bio=target["bio"],
-            location=target["location"],
-            skills=target["skills"],
-            is_active=True,
-            is_email_verified=True
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    else:
-        # Guarantee demo accounts are active, email-verified, and have expected status
-        updated = False
-        if not user.is_active:
-            user.is_active = True
-            updated = True
-        if not user.is_email_verified:
-            user.is_email_verified = True
-            updated = True
-        if role == "pending_recruiter" and user.recruiter_status != RecruiterStatus.PENDING:
-            user.recruiter_status = RecruiterStatus.PENDING
-            updated = True
-        elif role == "recruiter" and user.recruiter_status != RecruiterStatus.APPROVED:
-            user.recruiter_status = RecruiterStatus.APPROVED
-            updated = True
-        if updated:
-            db.commit()
-            db.refresh(user)
 
     token = create_access_token({"sub": str(user.id), "role": user.role})
     return {
@@ -425,12 +309,10 @@ async def upload_profile_resume(
             detail=f"Could not extract text from PDF: {str(e)}"
         )
 
-    # Save to UPLOAD_DIR
+    # Save to resume storage (S3 storage)
     clean_name = re.sub(r'[^a-zA-Z0-9_\.-]', '_', file.filename)
     unique_filename = f"user_{current_user.id}_{uuid.uuid4().hex[:8]}_{clean_name}"
-    file_path = UPLOAD_DIR / unique_filename
-    with open(file_path, "wb") as f:
-        f.write(pdf_bytes)
+    file_path = storage.save_resume(unique_filename, pdf_bytes)
 
     current_user.resume_file_path = str(file_path)
     current_user.resume_filename = file.filename

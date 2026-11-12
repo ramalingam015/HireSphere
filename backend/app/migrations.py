@@ -3,7 +3,7 @@ from app.database import engine
 
 def run_auto_migrations():
     """
-    Safely adds newly added columns to existing tables across PostgreSQL & SQLite
+    Safely adds newly added columns to existing tables on PostgreSQL
     without data loss or requiring manual SQL alter statements.
     """
     try:
@@ -23,6 +23,9 @@ def run_auto_migrations():
                 if "email_verification_expiry" not in user_cols:
                     conn.execute(text("ALTER TABLE users ADD COLUMN email_verification_expiry TIMESTAMP"))
                     print("[MIGRATION] Added email_verification_expiry column to users.")
+                if "email_verification_attempts" not in user_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN email_verification_attempts INTEGER NOT NULL DEFAULT 0"))
+                    print("[MIGRATION] Added email_verification_attempts column to users.")
                 if "resume_file_path" not in user_cols:
                     conn.execute(text("ALTER TABLE users ADD COLUMN resume_file_path VARCHAR(500)"))
                     print("[MIGRATION] Added resume_file_path column to users.")

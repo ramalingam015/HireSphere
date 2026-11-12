@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { apiRequest, API_BASE } from "../api/client";
+import { apiRequest } from "../api/client";
+import { ResumeViewerModal } from "../components/ResumeViewerModal";
 import { useAuth } from "../context/AuthContext";
 import { 
   Plus, Briefcase, Users, Calendar, Clock, MessageSquare, 
@@ -9,6 +10,7 @@ import {
 export const RecruiterDashboard = ({ onOpenChatWith }) => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("applications");
+  const [viewingResume, setViewingResume] = useState(null); // { path, name }
   const [jobs, setJobs] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [applications, setApplications] = useState([]);
@@ -358,15 +360,13 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
                                 <MessageSquare size={13} /> Chat with Student
                               </button>
 
-                              <a 
-                                href={`${API_BASE}/uploads/resumes/${app.resume_file_path.split(/[\\\/]/).pop()}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <button
+                                type="button"
+                                onClick={() => setViewingResume({ path: app.resume_file_path, name: app.original_filename })}
                                 className="btn btn-secondary btn-sm"
-                                style={{ textDecoration: "none" }}
                               >
-                                Download Resume PDF
-                              </a>
+                                View Resume PDF
+                              </button>
                             </div>
 
                             {/* State Transition Guards (FR-STAT-01) */}
@@ -744,6 +744,13 @@ export const RecruiterDashboard = ({ onOpenChatWith }) => {
             </form>
           </div>
         </div>
+      )}
+      {viewingResume && (
+        <ResumeViewerModal
+          resumePath={viewingResume.path}
+          filename={viewingResume.name}
+          onClose={() => setViewingResume(null)}
+        />
       )}
     </div>
   );

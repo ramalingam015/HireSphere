@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { Navbar } from "./components/Navbar";
 import { CandidateDashboard } from "./pages/CandidateDashboard";
@@ -9,37 +9,17 @@ import { ProfilePage } from "./pages/ProfilePage";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { ChatDrawer } from "./components/ChatDrawer";
-import { EmailConfigModal } from "./components/EmailConfigModal";
+import { resolveTab } from "./auth/access";
 
 function MainApp() {
   const { user, loading } = useAuth();
   const [currentTab, setCurrentTab] = useState("jobs");
   const [authMode, setAuthMode] = useState("login");
   const [chatTargetUser, setChatTargetUser] = useState(null);
-  const [showEmailConfig, setShowEmailConfig] = useState(false);
-  const [emailConfigInitialEmail, setEmailConfigInitialEmail] = useState("");
 
-  // Role-based tab isolation: Recruiters and Admins must NEVER see candidate Jobs/ATS
-  useEffect(() => {
-    if (user?.role === "recruiter") {
-      if (currentTab === "jobs" || currentTab === "applications" || currentTab === "admin") {
-        setCurrentTab("recruiter_dashboard");
-      }
-    } else if (user?.role === "admin") {
-      if (currentTab === "jobs" || currentTab === "applications" || currentTab === "recruiter_dashboard") {
-        setCurrentTab("admin");
-      }
-    } else if (user?.role === "candidate") {
-      if (currentTab === "recruiter_dashboard" || currentTab === "admin") {
-        setCurrentTab("jobs");
-      }
-    }
-  }, [user?.role]);
-
-  const handleOpenEmailConfig = (email = "") => {
-    setEmailConfigInitialEmail(email);
-    setShowEmailConfig(true);
-  };
+  // Role-based tab isolation, derived during render (no flash of a forbidden page):
+  // recruiters/admins never see candidate tabs and vice versa. The backend enforces the same rules.
+  const activeTab = user ? resolveTab(user.role, currentTab) : currentTab;
 
   if (loading) {
     return (
@@ -60,28 +40,19 @@ function MainApp() {
           currentTab={authMode} 
           setCurrentTab={setCurrentTab} 
           onOpenChatWith={setChatTargetUser} 
-          onOpenEmailConfig={() => handleOpenEmailConfig("")}
         />
         <main className="main-content">
           {authMode === "login" ? (
             <Login 
               onSwitchToRegister={() => setAuthMode("register")} 
-              onOpenEmailConfig={handleOpenEmailConfig}
             />
           ) : (
             <Register 
               onSwitchToLogin={() => setAuthMode("login")} 
-              onOpenEmailConfig={handleOpenEmailConfig}
             />
           )}
         </main>
 
-        {showEmailConfig && (
-          <EmailConfigModal 
-            initialEmail={emailConfigInitialEmail} 
-            onClose={() => setShowEmailConfig(false)} 
-          />
-        )}
       </div>
     );
   }
@@ -89,15 +60,14 @@ function MainApp() {
   return (
     <div className="app-container">
       <Navbar 
-        currentTab={currentTab} 
+        currentTab={activeTab} 
         setCurrentTab={setCurrentTab} 
         onOpenChatWith={setChatTargetUser} 
-        onOpenEmailConfig={() => handleOpenEmailConfig(user?.email || "")}
       />
 
       <main className="main-content">
         {/* Candidates ONLY: Jobs & ATS interface */}
-        {currentTab === "jobs" && user?.role === "candidate" && (
+        {activeTab === "jobs" && user?.role === "candidate" && (
           <CandidateDashboard 
             onOpenChatWith={setChatTargetUser} 
             activeSubTab="jobs" 
@@ -105,7 +75,7 @@ function MainApp() {
         )}
 
         {/* Candidates ONLY: My Applications */}
-        {currentTab === "applications" && user?.role === "candidate" && (
+        {activeTab === "applications" && user?.role === "candidate" && (
           <CandidateDashboard 
             onOpenChatWith={setChatTargetUser} 
             activeSubTab="applications" 
@@ -113,24 +83,24 @@ function MainApp() {
         )}
 
         {/* Recruiters Hub */}
-        {currentTab === "recruiter_dashboard" && (user?.role === "recruiter" || user?.role === "admin") && (
+        {activeTab === "recruiter_dashboard" && (user?.role === "recruiter" || user?.role === "admin") && (
           <RecruiterDashboard 
             onOpenChatWith={setChatTargetUser} 
           />
         )}
 
         {/* Admin Console */}
-        {currentTab === "admin" && user?.role === "admin" && (
+        {activeTab === "admin" && user?.role === "admin" && (
           <AdminDashboard />
         )}
 
-        {currentTab === "network" && (
+        {activeTab === "network" && (
           <NetworkPage 
             onOpenChatWith={setChatTargetUser} 
           />
         )}
 
-        {currentTab === "profile" && (
+        {activeTab === "profile" && (
           <ProfilePage />
         )}
       </main>
@@ -143,13 +113,6 @@ function MainApp() {
         />
       )}
 
-      {/* Email Service Configuration Modal */}
-      {showEmailConfig && (
-        <EmailConfigModal 
-          initialEmail={emailConfigInitialEmail || user?.email || ""} 
-          onClose={() => setShowEmailConfig(false)} 
-        />
-      )}
     </div>
   );
 }

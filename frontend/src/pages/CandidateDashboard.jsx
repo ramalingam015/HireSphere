@@ -3,6 +3,7 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { ATSModal } from "../components/ATSModal";
 import { SlotBookingModal } from "../components/SlotBookingModal";
+import { ResumeViewerModal } from "../components/ResumeViewerModal";
 import { 
   Search, Sparkles, MapPin, DollarSign, Calendar, MessageSquare, 
   CheckCircle2, Clock, XCircle, AlertTriangle, Filter, ArrowRight,
@@ -12,6 +13,7 @@ import {
 export const CandidateDashboard = ({ onOpenChatWith, activeSubTab = "jobs", onNavigateToProfile }) => {
   const { user } = useAuth();
   const [tab, setTab] = useState(activeSubTab);
+  const [viewingResume, setViewingResume] = useState(null); // { path, name }
   const [jobs, setJobs] = useState([]);
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -487,6 +489,14 @@ export const CandidateDashboard = ({ onOpenChatWith, activeSubTab = "jobs", onNa
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
                       <span>Submitted: {new Date(app.created_at).toLocaleDateString()}</span>
                       <span>Resume File: {app.original_filename}</span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", padding: "0.15rem 0.55rem" }}
+                        onClick={() => setViewingResume({ path: app.resume_file_path, name: app.original_filename })}
+                      >
+                        <FileText size={12} /> View resume
+                      </button>
                     </div>
 
                     {/* Booked Slot details if present */}
@@ -576,6 +586,13 @@ export const CandidateDashboard = ({ onOpenChatWith, activeSubTab = "jobs", onNa
           application={selectedAppForInterview}
           onClose={() => setSelectedAppForInterview(null)}
           onUpdated={() => fetchApplications()}
+        />
+      )}
+      {viewingResume && (
+        <ResumeViewerModal
+          resumePath={viewingResume.path}
+          filename={viewingResume.name}
+          onClose={() => setViewingResume(null)}
         />
       )}
     </div>

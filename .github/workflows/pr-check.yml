@@ -11,6 +11,19 @@ jobs:
   test-backend:
     name: Validate Backend (Python)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: recruitment_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -25,11 +38,18 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
-          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
 
       - name: Verify Python Code & Syntax
         run: |
           python -m compileall backend/app backend/main.py backend/reset_database.py
+
+      - name: Run Backend Tests
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/recruitment_test
+        run: |
+          cd backend
+          python -m pytest tests -q
 
   test-frontend:
     name: Validate Frontend (Vite & React)

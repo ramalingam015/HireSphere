@@ -1,9 +1,8 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { apiRequest } from "../api/client";
-import { Briefcase, AlertCircle, ShieldCheck, Mail, CheckCircle2, RefreshCw, Eye, EyeOff, Wrench } from "lucide-react";
+import { Briefcase, AlertCircle, ShieldCheck, Mail, CheckCircle2, RefreshCw, Eye, EyeOff } from "lucide-react";
 
-export const Register = ({ onSwitchToLogin, onOpenEmailConfig }) => {
+export const Register = ({ onSwitchToLogin }) => {
   const { register, verifyEmail, resendVerification } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -28,10 +27,6 @@ export const Register = ({ onSwitchToLogin, onOpenEmailConfig }) => {
   const [verifySuccessMsg, setVerifySuccessMsg] = useState("");
   const [verifyError, setVerifyError] = useState("");
 
-  // Email Diagnostics state
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [diagInfo, setDiagInfo] = useState(null);
-  const [diagLoading, setDiagLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -112,19 +107,6 @@ export const Register = ({ onSwitchToLogin, onOpenEmailConfig }) => {
     }
   };
 
-  const handleCheckDiagnostics = async () => {
-    setDiagLoading(true);
-    try {
-      const data = await apiRequest("/api/auth/email-diagnostics");
-      setDiagInfo(data);
-      setShowDiagnostics(true);
-    } catch (err) {
-      alert("Failed to load email server diagnostics: " + err.message);
-    } finally {
-      setDiagLoading(false);
-    }
-  };
-
   // 1. Email Verification Step
   if (verificationStep) {
     return (
@@ -166,18 +148,6 @@ export const Register = ({ onSwitchToLogin, onOpenEmailConfig }) => {
               <p style={{ margin: "0.2rem 0" }}>
                 {emailDetail || "Could not dispatch verification email. Please check your email configuration."}
               </p>
-              {onOpenEmailConfig && (
-                <div style={{ marginTop: "0.6rem" }}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenEmailConfig(pendingEmail)}
-                    className="btn btn-secondary btn-sm"
-                    style={{ width: "100%", fontSize: "0.75rem", background: "#fef3c7", borderColor: "#fde68a", color: "#92400e", fontWeight: 600 }}
-                  >
-                    ⚙️ Configure Real Email Delivery (Brevo / SendGrid / Resend)
-                  </button>
-                </div>
-              )}
             </div>
           )}
 
@@ -256,34 +226,6 @@ export const Register = ({ onSwitchToLogin, onOpenEmailConfig }) => {
             </button>
           </div>
 
-          {/* Email Server Diagnostics Toggle */}
-          <div style={{ textAlign: "center", marginTop: "1.25rem", paddingTop: "0.75rem", borderTop: "1px dashed var(--border)" }}>
-            <button
-              type="button"
-              onClick={handleCheckDiagnostics}
-              style={{ fontSize: "0.75rem", color: "var(--primary)", background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.3rem", fontWeight: 600 }}
-            >
-              <Wrench size={13} /> {diagLoading ? "Checking email server..." : "Check Email Server Status"}
-            </button>
-          </div>
-
-          {showDiagnostics && diagInfo && (
-            <div style={{
-              marginTop: "0.75rem", padding: "0.85rem", background: "#f8fafc",
-              border: "1px solid var(--border)", borderRadius: "8px", fontSize: "0.75rem", color: "#334155", textAlign: "left"
-            }}>
-              <div style={{ fontWeight: 700, marginBottom: "0.4rem", color: "#0f172a" }}>Server Email Configuration:</div>
-              <div style={{ marginBottom: "0.2rem" }}>• <strong>Email Provider:</strong> {diagInfo.provider}</div>
-              <div style={{ marginBottom: "0.2rem" }}>• <strong>Credentials Set on Server:</strong> {diagInfo.configured ? "✅ Yes" : "❌ No"}</div>
-              <div style={{ marginBottom: "0.2rem" }}>• <strong>Sender Address:</strong> {diagInfo.from_email || "Not configured"}</div>
-              <div style={{ marginBottom: "0.2rem" }}>• <strong>SMTP Host:Port:</strong> {diagInfo.smtp_host}:{diagInfo.smtp_port}</div>
-              {!diagInfo.configured && (
-                <div style={{ marginTop: "0.5rem", color: "#b45309", background: "#fef3c7", padding: "0.5rem", borderRadius: "6px", lineHeight: "1.4" }}>
-                  💡 <strong>To receive real emails:</strong> Add <code>SMTP_USER</code> and <code>SMTP_PASSWORD</code> in your Render Dashboard (Environment tab) or provide a <code>BREVO_API_KEY</code>.
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
     );

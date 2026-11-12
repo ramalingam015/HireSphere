@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { apiRequest, setAuthToken, getAuthToken } from "../api/client";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { apiRequest, setAuthToken, getAuthToken, UNAUTHORIZED_EVENT } from "../api/client";
 
 const AuthContext = createContext(null);
 
@@ -7,36 +7,71 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setTokenState] = useState(getAuthToken());
   const [loading, setLoading] = useState(true);
+  const [sessionMessage, setSessionMessage] = useState("");
 
-  const fetchCurrentUser = async () => {
+  const clearSession = useCallback(() => {
+    setAuthToken(null);
+    setTokenState(null);
+    setUser(null);
+  }, []);
+
+  const startSession = (data) => {
+    setSessionMessage("");
+    setAuthToken(data.access_token);
+    setTokenState(data.access_token);
+    setUser(data.user);
+  };
+
+  const fetchCurrentUser = useCallback(async () => {
     try {
       if (getAuthToken()) {
-        const userData = await apiRequest("/api/auth/me");
-        setUser(userData);
+        setUser(await apiRequest("/api/auth/me"));
       } else {
         setUser(null);
       }
     } catch (err) {
+      // Only an auth failure ends the session; a network blip must not log the user out.
+      if (err.status === 401 || err.status === 403) {
+        clearSession();
+      }
       console.warn("Session check failed:", err.message);
-      setAuthToken(null);
-      setUser(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [clearSession]);
 
   useEffect(() => {
     fetchCurrentUser();
-  }, [token]);
+  }, [token, fetchCurrentUser]);
+
+  // Any API call that comes back 401 (expired/invalid token) signs the user out everywhere.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      clearSession();
+      setSessionMessage("Your session has expired. Please sign in again.");
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, [clearSession]);
+
+  // Proactively sign out when the token's own expiry passes.
+  useEffect(() => {
+    if (!token) return undefined;
+    const timer = setInterval(() => {
+      if (!getAuthToken()) {
+        clearSession();
+        setSessionMessage("Your session has expired. Please sign in again.");
+      }
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [token, clearSession]);
 
   const login = async (email, password) => {
     const data = await apiRequest("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    setAuthToken(data.access_token);
-    setTokenState(data.access_token);
-    setUser(data.user);
+    startSession(data);
     return data.user;
   };
 
@@ -46,9 +81,7 @@ export const AuthProvider = ({ children }) => {
       body: JSON.stringify(userData),
     });
     if (data.user?.is_email_verified) {
-      setAuthToken(data.access_token);
-      setTokenState(data.access_token);
-      setUser(data.user);
+      startSession(data);
     }
     return data;
   };
@@ -58,9 +91,7 @@ export const AuthProvider = ({ children }) => {
       method: "POST",
       body: JSON.stringify({ email, code }),
     });
-    setAuthToken(data.access_token);
-    setTokenState(data.access_token);
-    setUser(data.user);
+    startSession(data);
     return data;
   };
 
@@ -72,34 +103,11 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
-    setAuthToken(null);
-    setTokenState(null);
-    setUser(null);
+    setSessionMessage("");
+    clearSession();
   };
 
-  const loginAsDemo = async (role) => {
-    try {
-      const data = await apiRequest("/api/auth/demo-login", {
-        method: "POST",
-        body: JSON.stringify({ role }),
-      });
-      setAuthToken(data.access_token);
-      setTokenState(data.access_token);
-      setUser(data.user);
-      return data.user;
-    } catch (err) {
-      console.warn("Direct demo-login route fallback:", err.message);
-      if (role === "admin") {
-        return login("admin@recruit.com", "admin123");
-      } else if (role === "recruiter") {
-        return login("recruiter@techcorp.com", "recruiter123");
-      } else if (role === "pending_recruiter") {
-        return login("pending@startup.io", "pending123");
-      } else {
-        return login("student@university.edu", "student123");
-      }
-    }
-  };
+  const hasRole = (...roles) => !!user && roles.includes(user.role);
 
   return (
     <AuthContext.Provider
@@ -107,12 +115,13 @@ export const AuthProvider = ({ children }) => {
         user,
         token,
         loading,
+        sessionMessage,
         login,
         register,
         verifyEmail,
         resendVerification,
         logout,
-        loginAsDemo,
+        hasRole,
         refreshUser: fetchCurrentUser,
       }}
     >

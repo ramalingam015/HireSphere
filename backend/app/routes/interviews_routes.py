@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
-from app.database import get_db, is_sqlite
+from app.database import get_db
 from app.models import (
     InterviewSlot, Application, ApplicationState, ApplicationStatusHistory,
     Job, User, UserRole, RecruiterStatus
@@ -104,10 +104,9 @@ def book_interview_slot(
         )
 
     try:
-        # Atomic lock row for update (PostgreSQL: FOR UPDATE; SQLite uses immediate lock)
+        # Atomic lock row for update (PostgreSQL: SELECT ... FOR UPDATE)
         slot_query = db.query(InterviewSlot).filter(InterviewSlot.id == req.slot_id)
-        if not is_sqlite:
-            slot_query = slot_query.with_for_update()
+        slot_query = slot_query.with_for_update()
         slot = slot_query.first()
 
         if not slot:
@@ -168,8 +167,7 @@ def change_interview_time(
             InterviewSlot.booked_by_application_id == app.id,
             InterviewSlot.is_cancelled == False
         )
-        if not is_sqlite:
-            old_slot_q = old_slot_q.with_for_update()
+        old_slot_q = old_slot_q.with_for_update()
         old_slot = old_slot_q.first()
 
         if not old_slot:
@@ -180,8 +178,7 @@ def change_interview_time(
 
         # Lock new slot
         new_slot_q = db.query(InterviewSlot).filter(InterviewSlot.id == req.new_slot_id)
-        if not is_sqlite:
-            new_slot_q = new_slot_q.with_for_update()
+        new_slot_q = new_slot_q.with_for_update()
         new_slot = new_slot_q.first()
 
         if not new_slot:

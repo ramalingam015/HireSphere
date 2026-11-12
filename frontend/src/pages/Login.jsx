@@ -1,10 +1,9 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { apiRequest } from "../api/client";
-import { Briefcase, Sparkles, AlertCircle, Mail, CheckCircle2, RefreshCw, Eye, EyeOff, Wrench } from "lucide-react";
+import { Briefcase, AlertCircle, Mail, CheckCircle2, RefreshCw, Eye, EyeOff } from "lucide-react";
 
-export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
-  const { login, loginAsDemo, verifyEmail, resendVerification } = useAuth();
+export const Login = ({ onSwitchToRegister }) => {
+  const { login, verifyEmail, resendVerification, sessionMessage } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -20,10 +19,6 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifySuccessMsg, setVerifySuccessMsg] = useState("");
 
-  // Diagnostics state
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [diagInfo, setDiagInfo] = useState(null);
-  const [diagLoading, setDiagLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -92,19 +87,6 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
     }
   };
 
-  const handleCheckDiagnostics = async () => {
-    setDiagLoading(true);
-    try {
-      const data = await apiRequest("/api/auth/email-diagnostics");
-      setDiagInfo(data);
-      setShowDiagnostics(true);
-    } catch (err) {
-      alert("Failed to load email server diagnostics: " + err.message);
-    } finally {
-      setDiagLoading(false);
-    }
-  };
-
   // 1. Unverified Email Verification Prompt View
   if (needsVerification) {
     return (
@@ -146,18 +128,6 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
               <p style={{ margin: "0.2rem 0" }}>
                 {emailDetail || "Could not dispatch verification email. Please check your email configuration."}
               </p>
-              {onOpenEmailConfig && (
-                <div style={{ marginTop: "0.6rem" }}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenEmailConfig(email)}
-                    className="btn btn-secondary btn-sm"
-                    style={{ width: "100%", fontSize: "0.75rem", background: "#fef3c7", borderColor: "#fde68a", color: "#92400e", fontWeight: 600 }}
-                  >
-                    ⚙️ Configure Real Email Delivery (Brevo / SendGrid / Resend)
-                  </button>
-                </div>
-              )}
             </div>
           )}
 
@@ -236,34 +206,6 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
             </button>
           </div>
 
-          {/* Email Server Diagnostics Toggle */}
-          <div style={{ textAlign: "center", marginTop: "1.25rem", paddingTop: "0.75rem", borderTop: "1px dashed var(--border)" }}>
-            <button
-              type="button"
-              onClick={handleCheckDiagnostics}
-              style={{ fontSize: "0.75rem", color: "var(--primary)", background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.3rem", fontWeight: 600 }}
-            >
-              <Wrench size={13} /> {diagLoading ? "Checking email server..." : "Check Email Server Status"}
-            </button>
-          </div>
-
-          {showDiagnostics && diagInfo && (
-            <div style={{
-              marginTop: "0.75rem", padding: "0.85rem", background: "#f8fafc",
-              border: "1px solid var(--border)", borderRadius: "8px", fontSize: "0.75rem", color: "#334155", textAlign: "left"
-            }}>
-              <div style={{ fontWeight: 700, marginBottom: "0.4rem", color: "#0f172a" }}>Server Email Configuration:</div>
-              <div style={{ marginBottom: "0.2rem" }}>• <strong>Email Provider:</strong> {diagInfo.provider}</div>
-              <div style={{ marginBottom: "0.2rem" }}>• <strong>Credentials Set on Server:</strong> {diagInfo.configured ? "✅ Yes" : "❌ No"}</div>
-              <div style={{ marginBottom: "0.2rem" }}>• <strong>Sender Address:</strong> {diagInfo.from_email || "Not configured"}</div>
-              <div style={{ marginBottom: "0.2rem" }}>• <strong>SMTP Host:Port:</strong> {diagInfo.smtp_host}:{diagInfo.smtp_port}</div>
-              {!diagInfo.configured && (
-                <div style={{ marginTop: "0.5rem", color: "#b45309", background: "#fef3c7", padding: "0.5rem", borderRadius: "6px", lineHeight: "1.4" }}>
-                  💡 <strong>To receive real emails:</strong> Add <code>SMTP_USER</code> and <code>SMTP_PASSWORD</code> in your Render Dashboard (Environment tab) or provide a <code>BREVO_API_KEY</code>.
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
     );
@@ -297,49 +239,14 @@ export const Login = ({ onSwitchToRegister, onOpenEmailConfig }) => {
           </div>
         )}
 
-        {/* 1-Click Demo Login Box */}
-        <div style={{
-          background: "#f8fafc", border: "1px dashed var(--border)",
-          borderRadius: "8px", padding: "0.85rem", marginBottom: "1.25rem"
-        }}>
-          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--primary)", display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.5rem" }}>
-            <Sparkles size={13} /> 1-CLICK INSTANT DEMO ROLES:
+        {sessionMessage && !error && (
+          <div style={{
+            background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e40af",
+            padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.85rem"
+          }}>
+            {sessionMessage}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem" }}>
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-sm"
-              onClick={() => loginAsDemo("candidate")}
-              style={{ fontSize: "0.75rem" }}
-            >
-              🎓 Student
-            </button>
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-sm"
-              onClick={() => loginAsDemo("recruiter")}
-              style={{ fontSize: "0.75rem" }}
-            >
-              👔 Recruiter
-            </button>
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-sm"
-              onClick={() => loginAsDemo("pending_recruiter")}
-              style={{ fontSize: "0.75rem" }}
-            >
-              ⏳ Pending Recruiter
-            </button>
-            <button 
-              type="button" 
-              className="btn btn-secondary btn-sm"
-              onClick={() => loginAsDemo("admin")}
-              style={{ fontSize: "0.75rem" }}
-            >
-              🛡️ Admin
-            </button>
-          </div>
-        </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">

@@ -1,16 +1,9 @@
 import json
 import re
-import time
-import socket
 from typing import Dict, Any, List, Optional
 import requests
 
-from app.config import (
-    GEMINI_API_KEY, GEMINI_MODEL,
-    OPENAI_API_KEY, OPENAI_MODEL,
-    GROQ_API_KEY, GROQ_MODEL,
-    OLLAMA_URL, OLLAMA_MODEL
-)
+from app.config import GEMINI_API_KEY, GEMINI_MODEL
 from app.services.ats_service import calculate_ats_score, match_skills_in_text
 
 # Comprehensive skill taxonomy for local extraction and matching
@@ -38,45 +31,28 @@ POPULAR_TECH_SKILLS = [
     "Unit Testing", "Jest", "Pytest", "Agile", "Scrum", "System Design"
 ]
 
-_ollama_cache = {"alive": None, "checked_at": 0}
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_URL_RE = re.compile(r"(?:https?://|www\.)\S+|\b(?:linkedin|github|gitlab)\.com/\S*", re.I)
+_PHONE_RE = re.compile(r"(?<![\w@])\+?\d[\d\s().-]{7,}\d(?!\w)")
 
-def is_ollama_online() -> bool:
-    """Ultra-fast (2ms) socket probe whether local Ollama is active."""
-    if not OLLAMA_URL:
-        return False
-    now = time.time()
-    if _ollama_cache["alive"] is not None and (now - _ollama_cache["checked_at"]) < 60:
-        return _ollama_cache["alive"]
-    _ollama_cache["checked_at"] = now
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.04)
-        host = "127.0.0.1"
-        port = 11434
-        if "://" in OLLAMA_URL:
-            part = OLLAMA_URL.split("://")[1].split("/")[0]
-            if ":" in part:
-                host, p_str = part.split(":")
-                port = int(p_str)
-            else:
-                host = part
-        if host == "localhost":
-            host = "127.0.0.1"
-        res = s.connect_ex((host, port))
-        s.close()
-        _ollama_cache["alive"] = (res == 0)
-    except Exception:
-        _ollama_cache["alive"] = False
-    return _ollama_cache["alive"]
+
+def sanitize_for_ai(text: str) -> str:
+    """FR-SEC-02: strip emails, URLs and phone numbers before any text is sent to the external LLM."""
+    text = _EMAIL_RE.sub("[email]", text or "")
+    text = _URL_RE.sub("[link]", text)
+    # Phone numbers: long digit runs (>= 9 digits). Short ranges like "2019 - 2023" are kept.
+    return _PHONE_RE.sub(lambda m: "[phone]" if sum(c.isdigit() for c in m.group(0)) >= 9 else m.group(0), text)
+
 
 def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]:
-    """Call Google Gemini 2.0 / 1.5 Flash API (Best available API)."""
+    """Call the Google Gemini API with GEMINI_MODEL, falling back to other Flash models."""
     if not GEMINI_API_KEY:
         return None
 
-    models = [GEMINI_MODEL, "gemini-2.0-flash", "gemini-1.5-flash"]
+    models = [GEMINI_MODEL, "gemini-flash-lite-latest", "gemini-flash-latest"]
     for model_name in dict.fromkeys(models):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        headers = {"x-goog-api-key": GEMINI_API_KEY}  # header, not ?key=, so it never lands in logs
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -88,7 +64,9 @@ def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]
             payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
         try:
-            resp = requests.post(url, json=payload, timeout=6.0)
+            resp = requests.post(url, json=payload, headers=headers, timeout=12.0)
+            if resp.status_code != 200:
+                print(f"[AI] Gemini model '{model_name}' returned HTTP {resp.status_code}: {resp.text[:160]}")
             if resp.status_code == 200:
                 data = resp.json()
                 candidates = data.get("candidates", [])
@@ -96,109 +74,15 @@ def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]
                     parts = candidates[0]["content"].get("parts", [])
                     if parts:
                         return parts[0].get("text", "")
-        except Exception:
+        except Exception as e:
+            print(f"[AI] Gemini model '{model_name}' request failed: {type(e).__name__}")
             continue
 
     return None
 
-def _call_openai_api(prompt: str, system_prompt: str = "") -> Optional[str]:
-    """Call OpenAI Chat Completions API."""
-    if not OPENAI_API_KEY:
-        return None
-
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    try:
-        resp = requests.post(
-            url,
-            headers=headers,
-            json={
-                "model": OPENAI_MODEL or "gpt-4o-mini",
-                "messages": messages,
-                "response_format": {"type": "json_object"},
-                "temperature": 0.2
-            },
-            timeout=6.0
-        )
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"]
-    except Exception:
-        pass
-    return None
-
-def _call_groq_api(prompt: str, system_prompt: str = "") -> Optional[str]:
-    """Call Groq API."""
-    if not GROQ_API_KEY:
-        return None
-
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    try:
-        resp = requests.post(
-            url,
-            headers=headers,
-            json={
-                "model": GROQ_MODEL or "llama-3.3-70b-versatile",
-                "messages": messages,
-                "response_format": {"type": "json_object"},
-                "temperature": 0.2
-            },
-            timeout=5.0
-        )
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"]
-    except Exception:
-        pass
-    return None
-
-def _call_ollama(prompt: str) -> Optional[str]:
-    """Call local Ollama only if it is actually online."""
-    if not is_ollama_online():
-        return None
-    try:
-        resp = requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "format": "json"
-            },
-            timeout=2.0
-        )
-        if resp.status_code == 200:
-            return resp.json().get("response", "{}")
-    except Exception:
-        pass
-    return None
-
 def call_best_ai_json(prompt: str, system_prompt: str = "") -> Optional[Dict[str, Any]]:
-    """Tries the best available API in order: Gemini -> OpenAI -> Groq -> Ollama."""
-    raw_json = None
-    if GEMINI_API_KEY:
-        raw_json = _call_gemini_api(prompt, system_prompt)
-    if not raw_json and OPENAI_API_KEY:
-        raw_json = _call_openai_api(prompt, system_prompt)
-    if not raw_json and GROQ_API_KEY:
-        raw_json = _call_groq_api(prompt, system_prompt)
-    if not raw_json and is_ollama_online():
-        raw_json = _call_ollama(f"{system_prompt}\n{prompt}")
+    """Ask Gemini for a JSON answer. Returns None when there is no key or the call fails."""
+    raw_json = _call_gemini_api(prompt, system_prompt) if GEMINI_API_KEY else None
 
     if raw_json:
         try:
@@ -212,16 +96,16 @@ def call_best_ai_json(prompt: str, system_prompt: str = "") -> Optional[Dict[str
                     pass
     return None
 
-def extract_skills_from_text(text: str) -> List[str]:
-    """Extract technical skills from resume text using AI or curated taxonomy."""
+def extract_skills_from_text(text: str, use_ai: bool = True) -> List[str]:
+    """Extract technical skills from resume text using Gemini (if enabled) or the curated taxonomy."""
     if not text or not text.strip():
         return []
 
-    if GEMINI_API_KEY or OPENAI_API_KEY or GROQ_API_KEY:
+    if use_ai and GEMINI_API_KEY:
         prompt = (
             f"Extract all technical skills, programming languages, databases, frameworks, and developer tools "
             f"from this resume snippet. Return JSON format: {{\"skills\": [\"Skill1\", \"Skill2\"]}}.\n\n"
-            f"Resume Text:\n{text[:4000]}"
+            f"Resume Text:\n{sanitize_for_ai(text)[:4000]}"
         )
         res = call_best_ai_json(prompt, system_prompt="You are an expert technical recruiter ATS.")
         if res and isinstance(res.get("skills"), list):
@@ -243,11 +127,16 @@ def extract_skills_from_text(text: str) -> List[str]:
 
 def parse_natural_language_search(query: str) -> Dict[str, Any]:
     """Parse user's natural language search query into structured parameters."""
+    return parse_search_with_feedback(query)[0]
+
+
+def parse_search_with_feedback(query: str) -> tuple:
+    """Like parse_natural_language_search, but also returns validation issues (FR-SCH-04)."""
     clean_query = query.strip()
     if not clean_query:
-        return {}
+        return {}, []
 
-    if GEMINI_API_KEY or OPENAI_API_KEY or GROQ_API_KEY or is_ollama_online():
+    if GEMINI_API_KEY:
         prompt = (
             f"You are a job search assistant. Parse this job query into structured JSON with keys: "
             f"\"title\" (string or null), \"company\" (string or null), \"location\" (string or null), "
@@ -257,9 +146,9 @@ def parse_natural_language_search(query: str) -> Dict[str, Any]:
         )
         parsed = call_best_ai_json(prompt, system_prompt="Output only valid JSON.")
         if parsed and isinstance(parsed, dict):
-            return validate_and_clean_search_params(parsed)
+            return validate_search_params(parsed)
 
-    return local_heuristic_search_parser(clean_query)
+    return local_heuristic_search_parser(clean_query), []
 
 def local_heuristic_search_parser(query: str) -> Dict[str, Any]:
     """Smart offline parser for natural language job search queries."""
@@ -301,21 +190,48 @@ def local_heuristic_search_parser(query: str) -> Dict[str, Any]:
 
     return params
 
+ALLOWED_SEARCH_KEYS = ("title", "company", "location", "job_type", "skills", "keyword")
+_MAX_PARAM_LEN = 120
+
+
+def validate_search_params(params: dict) -> tuple:
+    """FR-SCH-04: validate AI-generated search parameters.
+
+    Returns (cleaned, issues). Only whitelisted keys with well-formed values survive; everything
+    else is rejected and described in `issues` so the caller can give clear feedback.
+    """
+    cleaned: Dict[str, Any] = {}
+    issues: List[str] = []
+    for key, value in (params or {}).items():
+        if key not in ALLOWED_SEARCH_KEYS:
+            if value not in (None, "", [], {}):
+                issues.append(f"unsupported filter '{key}' was ignored")
+            continue
+        if value in (None, "", []):
+            continue
+        if key == "skills":
+            if not isinstance(value, list):
+                issues.append("'skills' must be a list and was ignored")
+                continue
+            skills = [str(s).strip() for s in value if str(s).strip() and len(str(s)) <= _MAX_PARAM_LEN]
+            if skills:
+                cleaned["skills"] = skills
+            continue
+        if not isinstance(value, str):
+            issues.append(f"'{key}' must be text and was ignored")
+            continue
+        value = value.strip()
+        if not value:
+            continue
+        if len(value) > _MAX_PARAM_LEN:
+            issues.append(f"'{key}' was too long and was ignored")
+            continue
+        cleaned[key] = value
+    return cleaned, issues
+
+
 def validate_and_clean_search_params(params: dict) -> dict:
-    cleaned = {}
-    if params.get("title") and isinstance(params["title"], str):
-        cleaned["title"] = params["title"].strip()
-    if params.get("company") and isinstance(params["company"], str):
-        cleaned["company"] = params["company"].strip()
-    if params.get("location") and isinstance(params["location"], str):
-        cleaned["location"] = params["location"].strip()
-    if params.get("job_type") and isinstance(params["job_type"], str):
-        cleaned["job_type"] = params["job_type"].strip()
-    if params.get("skills") and isinstance(params["skills"], list):
-        cleaned["skills"] = [str(s).strip() for s in params["skills"] if str(s).strip()]
-    if params.get("keyword") and isinstance(params["keyword"], str):
-        cleaned["keyword"] = params["keyword"].strip()
-    return cleaned
+    return validate_search_params(params)[0]
 
 def recommend_and_rank_jobs(
     jobs: List[Any],
@@ -325,21 +241,25 @@ def recommend_and_rank_jobs(
     query: str = "",
     location_filter: str = "",
     job_type_filter: str = "",
-    skill_filter: str = ""
+    skill_filter: str = "",
+    parsed_query: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
     """Evaluates, scores, and ranks available jobs against a candidate's profile/resume and filters."""
     if not jobs:
         return []
 
     combined_resume = (resume_text or "") + "\n" + (candidate_skills or "") + "\n" + (candidate_headline or "")
-    parsed_query = parse_natural_language_search(query) if query else {}
+    if parsed_query is None:
+        parsed_query = parse_natural_language_search(query) if query else {}
 
     cand_skill_list = set()
     if candidate_skills:
         for s in candidate_skills.split(","):
             if s.strip():
                 cand_skill_list.add(s.strip().lower())
-    for s in extract_skills_from_text(combined_resume):
+    # Local taxonomy only: Gemini already extracted profile skills at resume-upload time, and an
+    # extra LLM round-trip on every search would double its latency.
+    for s in extract_skills_from_text(combined_resume, use_ai=False):
         cand_skill_list.add(s.lower())
 
     results = []

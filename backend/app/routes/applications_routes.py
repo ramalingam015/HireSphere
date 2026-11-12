@@ -13,11 +13,15 @@ from app.models import (
 from app.schemas import (
     ApplicationOut, ATSAnalysisResult, ApplicationStatusTransitionRequest
 )
-from app.auth import get_current_user, require_candidate, require_recruiter
-from app.config import UPLOAD_DIR, MAX_RESUME_SIZE_BYTES
+from app.auth import get_current_user, require_candidate, require_recruiter, require_approved_recruiter
+from app.config import MAX_RESUME_SIZE_BYTES
+from app import storage
 from app.services.ats_service import extract_text_from_pdf, calculate_ats_score
 
 router = APIRouter(prefix="/api/applications", tags=["Applications & ATS"])
+
+# States only the candidate may move an application into (own endpoints: /withdraw, /interviews/close)
+CANDIDATE_ONLY_STATES = {ApplicationState.WITHDRAWN, ApplicationState.CANDIDATE_DECLINED}
 
 # FR-STAT-01: Valid State Transitions Matrix
 VALID_TRANSITIONS = {
@@ -93,7 +97,8 @@ async def pre_analyze_resume(
         "missing_preferred": result["missing_preferred"],
         "score": result["score"],
         "formula_used": result["formula"],
-        "is_ai_powered": True,
+        # Skills are matched by the deterministic engine; no LLM is involved in this endpoint.
+        "is_ai_powered": False,
         "ai_status_message": "ATS analysis completed successfully."
     }
 
@@ -151,9 +156,7 @@ async def submit_application(
 
     # Save permanently associated PDF (FR-DAT-03)
     file_id = f"{uuid.uuid4().hex}_{file.filename}"
-    file_path = UPLOAD_DIR / file_id
-    with open(file_path, "wb") as f:
-        f.write(pdf_bytes)
+    file_path = storage.save_resume(file_id, pdf_bytes)
 
     # Calculate ATS score unless candidate opted to submit without score (FR-ERR-02)
     ats_score = None
@@ -235,7 +238,7 @@ def transition_application_state(
     app_id: int,
     transition: ApplicationStatusTransitionRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_approved_recruiter)
 ):
     """
     FR-STAT-01: Valid state transitions.
@@ -253,6 +256,21 @@ def transition_application_state(
 
     target_status = transition.to_status
     current_status = app.status
+
+    # Withdrawing and declining an interview are candidate decisions (FR-STAT-04, FR-REC-07):
+    # they have their own endpoints and a recruiter must not be able to impersonate them.
+    if target_status in CANDIDATE_ONLY_STATES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"'{target_status}' can only be set by the candidate."
+        )
+
+    # FR-ADM-02/03: an application on administrative hold is frozen until the recruiter is reactivated.
+    if app.is_hold_overlay:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This application is on hold because the recruiter account is suspended."
+        )
 
     # Validate transition
     allowed_next_states = VALID_TRANSITIONS.get(current_status, [])

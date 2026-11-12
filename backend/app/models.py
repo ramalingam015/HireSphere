@@ -48,6 +48,7 @@ class User(Base):
     is_email_verified = Column(Boolean, default=False)
     email_verification_code = Column(String(10), nullable=True)
     email_verification_expiry = Column(DateTime, nullable=True)
+    email_verification_attempts = Column(Integer, default=0, nullable=False)
     # Candidate Resume for Profile & AI Job Matching
     resume_file_path = Column(String(500), nullable=True)
     resume_filename = Column(String(255), nullable=True)

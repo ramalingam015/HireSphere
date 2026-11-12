@@ -29,9 +29,6 @@ class UserLogin(BaseModel):
     email: str
     password: str
 
-class DemoLoginRequest(BaseModel):
-    role: str = "candidate"
-
 class EmailVerificationRequest(BaseModel):
     email: str
     code: str
@@ -286,18 +283,6 @@ class RecruiterActionRequest(BaseModel):
 class ContentModerationRequest(BaseModel):
     action: str  # hide, delete, unhide
     reason: Optional[str] = ""
-
-class EmailConfigRequest(BaseModel):
-    provider: str = "gmail"
-    brevo_api_key: Optional[str] = None
-    resend_api_key: Optional[str] = None
-    sendgrid_api_key: Optional[str] = None
-    smtp_user: Optional[str] = None
-    smtp_password: Optional[str] = None
-    smtp_host: Optional[str] = "smtp.gmail.com"
-    smtp_port: Optional[int] = 465
-    from_email: Optional[str] = None
-    test_recipient: Optional[str] = None
 
 class ResetDatabaseRequest(BaseModel):
     admin_secret_key: str

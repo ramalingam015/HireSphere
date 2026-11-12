@@ -2,116 +2,12 @@ import os
 import smtplib
 import socket
 import requests
-from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import app.config as config
 
 TIMEOUT_HTTP = 3.5
 TIMEOUT_SMTP = 3.5
-
-def update_email_configuration(
-    brevo_api_key: str = "",
-    resend_api_key: str = "",
-    sendgrid_api_key: str = "",
-    smtp_user: str = "",
-    smtp_password: str = "",
-    smtp_host: str = "smtp.gmail.com",
-    smtp_port: int = 465,
-    from_email: str = ""
-):
-    """
-    Updates email credentials at runtime and saves them into the root .env file.
-    """
-    if resend_api_key is not None and resend_api_key.strip():
-        config.RESEND_API_KEY = resend_api_key.strip()
-        os.environ["RESEND_API_KEY"] = config.RESEND_API_KEY
-
-    if sendgrid_api_key is not None and sendgrid_api_key.strip():
-        config.SENDGRID_API_KEY = sendgrid_api_key.strip()
-        os.environ["SENDGRID_API_KEY"] = config.SENDGRID_API_KEY
-
-    if brevo_api_key is not None and brevo_api_key.strip():
-        config.BREVO_API_KEY = brevo_api_key.strip()
-        os.environ["BREVO_API_KEY"] = config.BREVO_API_KEY
-
-    if smtp_user is not None:
-        config.SMTP_USER = smtp_user.strip()
-        os.environ["SMTP_USER"] = config.SMTP_USER
-
-    if smtp_password is not None:
-        config.SMTP_PASSWORD = smtp_password.strip().replace(" ", "")
-        os.environ["SMTP_PASSWORD"] = config.SMTP_PASSWORD
-        if config.SMTP_PASSWORD.startswith("xkeysib-") and not config.BREVO_API_KEY:
-            config.BREVO_API_KEY = config.SMTP_PASSWORD
-            os.environ["BREVO_API_KEY"] = config.BREVO_API_KEY
-        elif config.SMTP_PASSWORD.startswith("re_") and not config.RESEND_API_KEY:
-            config.RESEND_API_KEY = config.SMTP_PASSWORD
-            os.environ["RESEND_API_KEY"] = config.RESEND_API_KEY
-        elif config.SMTP_PASSWORD.startswith("SG.") and not config.SENDGRID_API_KEY:
-            config.SENDGRID_API_KEY = config.SMTP_PASSWORD
-            os.environ["SENDGRID_API_KEY"] = config.SENDGRID_API_KEY
-
-    if smtp_host is not None and smtp_host.strip():
-        config.SMTP_HOST = smtp_host.strip()
-        os.environ["SMTP_HOST"] = config.SMTP_HOST
-
-    if smtp_port is not None:
-        try:
-            config.SMTP_PORT = int(smtp_port)
-            os.environ["SMTP_PORT"] = str(config.SMTP_PORT)
-        except Exception:
-            pass
-
-    # If using Gmail, default to port 465 SSL for instant connection without STARTTLS handshake issues
-    if "gmail" in config.SMTP_HOST.lower() and config.SMTP_PORT == 587:
-        config.SMTP_PORT = 465
-        os.environ["SMTP_PORT"] = "465"
-
-    if from_email is not None and from_email.strip():
-        config.SMTP_FROM_EMAIL = from_email.strip()
-        os.environ["SMTP_FROM_EMAIL"] = config.SMTP_FROM_EMAIL
-    elif config.SMTP_USER and "@" in config.SMTP_USER:
-        config.SMTP_FROM_EMAIL = config.SMTP_USER
-        os.environ["SMTP_FROM_EMAIL"] = config.SMTP_FROM_EMAIL
-
-    # Persist to .env in backend directory
-    try:
-        env_path = Path(__file__).resolve().parent.parent / ".env"
-        existing_lines = []
-        if env_path.exists():
-            existing_lines = env_path.read_text(encoding="utf-8").splitlines()
-
-        env_map = {
-            "BREVO_API_KEY": config.BREVO_API_KEY,
-            "RESEND_API_KEY": config.RESEND_API_KEY,
-            "SENDGRID_API_KEY": config.SENDGRID_API_KEY,
-            "SMTP_USER": config.SMTP_USER,
-            "SMTP_PASSWORD": config.SMTP_PASSWORD,
-            "SMTP_HOST": config.SMTP_HOST,
-            "SMTP_PORT": str(config.SMTP_PORT),
-            "SMTP_FROM_EMAIL": config.SMTP_FROM_EMAIL
-        }
-
-        written_keys = set()
-        new_lines = []
-        for line in existing_lines:
-            if "=" in line and not line.strip().startswith("#"):
-                key = line.split("=")[0].strip()
-                if key in env_map:
-                    new_lines.append(f"{key}={env_map[key]}")
-                    written_keys.add(key)
-                    continue
-            new_lines.append(line)
-
-        for key, val in env_map.items():
-            if key not in written_keys and val:
-                new_lines.append(f"{key}={val}")
-
-        env_path.write_text("\n".join(new_lines), encoding="utf-8")
-        print(f"[CONFIG] Updated runtime email configuration and persisted to {env_path}")
-    except Exception as e:
-        print(f"[CONFIG WARNING] Could not persist to .env: {e}")
 
 def get_email_service_status() -> dict:
     """
@@ -143,7 +39,7 @@ def get_email_service_status() -> dict:
     elif is_resend:
         provider = "Resend API (HTTPS Port 443)"
     elif is_gmail:
-        provider = "Gmail Direct SSL (Port 465 - Blocked on Render cloud)"
+        provider = "Gmail SMTP (SSL, port 465)"
     elif has_creds:
         provider = f"Custom SMTP ({config.SMTP_HOST})"
 
@@ -219,14 +115,14 @@ This code will expire in 24 hours. If you did not request this, please ignore th
 """
 
     status = get_email_service_status()
-    print(f"\n=======================================================")
-    print(f"[EMAIL SERVICE] Recipient: {recipient_email}")
-    print(f"[EMAIL SERVICE] 6-Digit Code: {code}")
-    print(f"[EMAIL SERVICE] Provider: {status['provider']} | Configured: {status['configured']}")
-    print(f"=======================================================\n")
+    print(f"[EMAIL SERVICE] Recipient: {recipient_email} | Provider: {status['provider']} | Configured: {status['configured']}")
+    if config.APP_ENV != "production":
+        # Dev convenience only: lets you verify an account without a mail provider. Never logged in production.
+        print(f"[EMAIL SERVICE] (dev) 6-digit code for {recipient_email}: {code}")
 
     if not status["configured"]:
-        return False, "No email credentials configured. Click 'Configure Real Email Delivery' to link Gmail App Password or Resend."
+        hint = " In development the code is printed in the API server log." if config.APP_ENV != "production" else ""
+        return False, "Email delivery is not configured on the server (set SMTP_*, BREVO_API_KEY, RESEND_API_KEY or SENDGRID_API_KEY in backend/.env)." + hint
 
     sender_email = config.SMTP_FROM_EMAIL or config.SMTP_USER
     if not sender_email or "@" not in sender_email:
@@ -282,7 +178,7 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                 "Authorization": f"Bearer {sendgrid_key}",
                 "Content-Type": "application/json"
             }
-            sg_sender = config.SMTP_FROM_EMAIL or config.SMTP_USER or "hirepro455@gmail.com"
+            sg_sender = sender_email
             sg_payload = {
                 "personalizations": [{"to": [{"email": recipient_email}]}],
                 "from": {"email": sg_sender, "name": config.SMTP_FROM_NAME or "HireSphere"},
@@ -317,7 +213,7 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                 "content-type": "application/json"
             }
             # Brevo requires the sender to be an email address registered in the Brevo account
-            brevo_sender = config.SMTP_FROM_EMAIL or config.SMTP_USER or "hirepro455@gmail.com"
+            brevo_sender = sender_email
             payload = {
                 "sender": {
                     "name": config.SMTP_FROM_NAME or "HireSphere",
@@ -343,7 +239,7 @@ This code will expire in 24 hours. If you did not request this, please ignore th
                         "Click 'Generate a new API key' and copy the full key starting with 'xkeysib-'."
                     )
                 if "not verified" in err_msg.lower() or "sender" in err_msg.lower():
-                    return False, f"Brevo Error: Sender email '{brevo_sender}' is not verified in Brevo. In Email Setup, set 'Registered Brevo Sender Email' to your exact Brevo signup email."
+                    return False, f"Brevo Error: Sender email '{brevo_sender}' is not verified in Brevo. Set SMTP_FROM_EMAIL in backend/.env to your exact Brevo signup email."
                 if "suspended" in err_msg.lower() or "not validated" in err_msg.lower() or "unauthorized" in err_msg.lower():
                     return False, f"Brevo Error: Your Brevo account requires profile validation before sending transactional emails."
                 return False, f"Brevo API error ({res.status_code}): {err_msg}"
@@ -383,7 +279,7 @@ This code will expire in 24 hours. If you did not request this, please ignore th
         except OSError as e:
             if getattr(e, "errno", None) == 101 or "network is unreachable" in str(e).lower():
                 print(f"[EMAIL SERVICE ERROR] Render blocks outbound SMTP ports: {e}")
-                return False, "Render Cloud Firewall: Render permanently blocks outbound SMTP ports (25, 465, 587) with [Errno 101] Network is unreachable. On Render, email must be sent via HTTPS REST API over Port 443 (such as Brevo, SendGrid, or Resend)."
+                return False, "Outbound SMTP appears to be blocked by the hosting network ([Errno 101] Network is unreachable). Use an HTTPS provider instead (RESEND_API_KEY, BREVO_API_KEY or SENDGRID_API_KEY in backend/.env)."
             return False, f"Gmail SMTP network error: {str(e)}"
         except Exception as e:
             print(f"[EMAIL SERVICE ERROR] Gmail SMTP error: {e}")
@@ -419,3 +315,11 @@ This code will expire in 24 hours. If you did not request this, please ignore th
             return False, f"Custom SMTP error: {str(e)}"
 
     return False, "Failed to send email. Check credentials or use Gmail App Password."
+
+
+def user_facing_detail(sent: bool, detail: str) -> str:
+    """What an (unauthenticated) end user may see. Full provider/config detail is dev-only or admin-only."""
+    if sent or config.APP_ENV != "production":
+        return detail
+    print(f"[EMAIL SERVICE] delivery failed (detail hidden from client): {detail}")
+    return "We couldn't send the verification email right now. Please try again in a few minutes."

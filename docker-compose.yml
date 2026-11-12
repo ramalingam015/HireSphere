@@ -1,21 +1,42 @@
+# One compose file for local development AND the Oracle VM.
+#   Local:  docker compose up -d --build
+#   VM:     docker compose --env-file backend/.env --profile prod up -d --build
+# Variables come from backend/.env (see backend/.env.example); the defaults below are dev-only.
+# With APP_ENV=production the API refuses to start on any dev default (see backend/app/config.py).
+# All published ports bind to 127.0.0.1; on the VM only Caddy (profile "prod") is public.
 services:
-  web:
+  api:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     container_name: hiresphere_app
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # public access goes through Caddy (HTTPS) only
     environment:
-      - DATABASE_URL=postgresql://postgres:postgrespassword@db:5432/recruitment_db
-      - SECRET_KEY=replace_with_a_secure_random_key_in_production
-      - OLLAMA_URL=http://host.docker.internal:11434
-      - OLLAMA_MODEL=qwen2.5:3b
-    volumes:
-      - resumes_data:/app/backend/uploads/resumes
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgrespassword}@db:5432/recruitment_db
+      SECRET_KEY: ${SECRET_KEY:-dev-only-secret-change-me}
+      ADMIN_REGISTRATION_KEY: ${ADMIN_REGISTRATION_KEY:-CS455-ADMIN-2026}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      MINIO_ENDPOINT: http://storage:8333
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: hiresphere
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-lite-latest}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
     depends_on:
       db:
+        condition: service_healthy
+      storage:
         condition: service_healthy
 
   db:
@@ -23,11 +44,11 @@ services:
     container_name: hiresphere_db
     restart: unless-stopped
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgrespassword
-      - POSTGRES_DB=recruitment_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+      POSTGRES_DB: recruitment_db
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -36,6 +57,46 @@ services:
       timeout: 5s
       retries: 5
 
+  # S3-compatible object storage for resumes (SeaweedFS: official multi-arch image, no compile).
+  # Only the API talks to it; ports are bound to localhost. Keys come from MINIO_ROOT_USER/PASSWORD
+  # (the variable names are kept from the old MinIO setup; they are just the S3 access/secret key).
+  storage:
+    image: chrislusf/seaweedfs:4.50
+    container_name: hiresphere_storage
+    restart: unless-stopped
+    command: server -s3 -dir=/data -ip.bind=0.0.0.0 -s3.port=8333
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "127.0.0.1:8333:8333"   # S3 API
+    volumes:
+      - storage_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9333/cluster/status && nc -z localhost 8333"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Production only (profile "prod"): automatic HTTPS in front of the API.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["prod"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
 volumes:
   postgres_data:
-  resumes_data:
+  storage_data:
+  caddy_data:
+  caddy_config:

@@ -1,41 +1,54 @@
-import { MOCK_USERS, MOCK_JOBS, MOCK_SLOTS, MOCK_POSTS, MOCK_APPLICATIONS } from "./mockData";
-
-export const getApiBase = () => {
-  const saved = localStorage.getItem("hiresphere_api_base");
-  if (saved !== null && saved !== undefined && saved !== "") {
-    return saved.replace(/\/$/, "");
-  }
-  return import.meta.env.VITE_API_BASE !== undefined ? import.meta.env.VITE_API_BASE : "";
-};
-
-export const setApiBase = (url) => {
-  if (url) {
-    localStorage.setItem("hiresphere_api_base", url.trim().replace(/\/$/, ""));
-  } else {
-    localStorage.removeItem("hiresphere_api_base");
-  }
-};
+// API root, set at build time (frontend/.env). Empty = same origin (works with the Vite dev proxy).
+export const getApiBase = () => (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 
 export const API_BASE = getApiBase();
 
-export const getAuthToken = () => {
-  return localStorage.getItem("recruitment_token");
+// Resumes are only served by the backend to authenticated users (JWT), so they can't be
+// opened with a plain <a href>. Fetch with the bearer token and use a blob URL instead.
+export const fetchResumeBlob = async (resumePath) => {
+  const filename = String(resumePath || "").split(/[\\/]/).pop();
+  if (!filename) throw new Error("No resume on file.");
+  const token = getAuthToken();
+  const response = await fetch(`${getApiBase()}/api/files/resumes/${encodeURIComponent(filename)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    throw new Error(response.status === 401 ? "Please sign in again." : "Could not load the resume PDF.");
+  }
+  return response.blob();
+};
+
+const TOKEN_KEY = "recruitment_token";
+export const UNAUTHORIZED_EVENT = "hiresphere:unauthorized";
+
+const jwtExpiryMs = (token) => {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
 };
 
 export const setAuthToken = (token) => {
   if (token) {
-    localStorage.setItem("recruitment_token", token);
+    localStorage.setItem(TOKEN_KEY, token);
   } else {
-    localStorage.removeItem("recruitment_token");
+    localStorage.removeItem(TOKEN_KEY);
   }
 };
 
-// In-memory mock state for static offline GitHub Pages fallback
-let mockUsers = [...MOCK_USERS];
-let mockJobs = [...MOCK_JOBS];
-let mockSlots = [...MOCK_SLOTS];
-let mockPosts = [...MOCK_POSTS];
-let mockApps = [...MOCK_APPLICATIONS];
+/** Returns the stored JWT, or null if absent, malformed or expired (expired tokens are purged). */
+export const getAuthToken = () => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return null;
+  const exp = jwtExpiryMs(token);
+  if (exp === null || exp <= Date.now()) {
+    setAuthToken(null);
+    return null;
+  }
+  return token;
+};
 
 export const apiRequest = async (endpoint, options = {}) => {
   const token = getAuthToken();
@@ -58,12 +71,18 @@ export const apiRequest = async (endpoint, options = {}) => {
       headers,
     });
 
-    if (response.status === 401 && !endpoint.includes("/api/auth/login")) {
+    if (response.status === 401 && !endpoint.startsWith("/api/auth/login")) {
+      // Session is invalid/expired: drop the token and tell the app to sign out.
       setAuthToken(null);
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     }
 
     let data;
     const contentType = response.headers.get("content-type");
+    if (endpoint.startsWith("/api/") && contentType && contentType.includes("text/html")) {
+      // e.g. static hosting answering with index.html because VITE_API_BASE is not set
+      throw new Error("The HireSphere API is not configured for this site (VITE_API_BASE).");
+    }
     if (contentType && contentType.includes("application/json")) {
       data = await response.json();
     } else {
@@ -84,330 +103,6 @@ export const apiRequest = async (endpoint, options = {}) => {
       // Re-throw genuine HTTP responses from backend (e.g. 400 Bad Request, 403 Forbidden)
       throw err;
     }
-    // If backend is unreachable (e.g. static hosting on GitHub Pages), fallback to mock engine
-    console.warn(`[HireSphere API] Fetch to "${url}" failed. Using mock fallback engine.`, err.message);
-    return handleMockFallback(endpoint, options);
+    throw new Error("Cannot reach the HireSphere server. Please check your connection and try again.");
   }
 };
-
-function handleMockFallback(endpoint, options) {
-  const method = (options.method || "GET").toUpperCase();
-
-  // Auth me
-  if (endpoint.startsWith("/api/auth/me")) {
-    const savedRole = localStorage.getItem("hiresphere_demo_role") || "candidate";
-    const user = mockUsers.find(u => u.role === savedRole) || mockUsers[0];
-    return user;
-  }
-
-  // Auth register
-  if (endpoint.startsWith("/api/auth/register")) {
-    let body = {};
-    try { body = JSON.parse(options.body); } catch (_) {}
-    if (body.role === "admin" && body.admin_secret_key !== "CS455-ADMIN-2026") {
-      const err = new Error("Unauthorized: Administrator registration requires a valid Admin Security Passcode. Contact system owners.");
-      err.status = 403;
-      throw err;
-    }
-    const newUser = {
-      id: Date.now(),
-      email: body.email,
-      full_name: body.full_name,
-      role: body.role,
-      recruiter_status: body.role === "recruiter" ? "pending" : "approved",
-      company: body.company || "",
-      is_active: true,
-      is_email_verified: false
-    };
-    mockUsers.push(newUser);
-    localStorage.setItem("hiresphere_demo_role", newUser.role);
-    return {
-      access_token: "demo-mock-jwt-token",
-      token_type: "bearer",
-      user: newUser,
-      message: `Account created! A 6-digit verification code has been dispatched to ${newUser.email}.`
-    };
-  }
-
-  // Auth verify email
-  if (endpoint.startsWith("/api/auth/verify-email")) {
-    let body = {};
-    try { body = JSON.parse(options.body); } catch (_) {}
-    if (body.code && body.code.trim().length !== 6) {
-      const err = new Error("Invalid 6-digit verification code. Please check and try again.");
-      err.status = 400;
-      throw err;
-    }
-    const user = mockUsers.find(u => u.email === body.email) || mockUsers[0];
-    user.is_email_verified = true;
-    setAuthToken("demo-mock-jwt-token");
-    localStorage.setItem("hiresphere_demo_role", user.role);
-    return {
-      message: "Email verified successfully! Welcome to HireSphere.",
-      is_verified: true,
-      access_token: "demo-mock-jwt-token",
-      token_type: "bearer",
-      user
-    };
-  }
-
-  // Auth resend verification
-  if (endpoint.startsWith("/api/auth/resend-verification")) {
-    return {
-      message: "New 6-digit verification code sent."
-    };
-  }
-
-  // Profile Resume
-  if (endpoint.startsWith("/api/auth/profile/resume")) {
-    const savedRole = localStorage.getItem("hiresphere_demo_role") || "candidate";
-    const user = mockUsers.find(u => u.role === savedRole) || mockUsers[0];
-    if (method === "POST") {
-      let filename = "Candidate_Resume.pdf";
-      if (options.body instanceof FormData && options.body.get("file")) {
-        filename = options.body.get("file").name;
-      }
-      user.resume_filename = filename;
-      user.resume_file_path = "/uploads/resumes/" + filename;
-      if (!user.skills || user.skills.length < 5) {
-        user.skills = "Python, React, FastAPI, Docker, PostgreSQL, Git";
-      }
-      return user;
-    }
-    if (method === "DELETE") {
-      user.resume_filename = null;
-      user.resume_file_path = null;
-      return user;
-    }
-  }
-
-  // Auth diagnostics
-  if (endpoint.startsWith("/api/auth/email-diagnostics")) {
-    return {
-      configured: false,
-      provider: "Mock Mode (Static Hosting)",
-      smtp_host: "None",
-      smtp_port: 587,
-      smtp_user: "",
-      from_email: "noreply@hiresphere.com",
-      from_name: "HireSphere Recruitment",
-      using_api: false
-    };
-  }
-  if (endpoint.startsWith("/api/auth/test-email")) {
-    return {
-      success: false,
-      detail: "Static mock mode active. Real email delivery requires the backend running on Render with SMTP credentials.",
-      test_code: "123456"
-    };
-  }
-  if (endpoint.startsWith("/api/auth/configure-email")) {
-    let body = {};
-    try { body = JSON.parse(options.body); } catch (_) {}
-    return {
-      success: true,
-      message: `Configured in demo mode for ${body.provider || 'Brevo'}. (Real email delivery requires backend running on Render with credentials).`
-    };
-  }
-
-  // Auth login
-  if (endpoint.startsWith("/api/auth/login")) {
-    let body = {};
-    try { body = JSON.parse(options.body); } catch (_) {}
-    const user = mockUsers.find(u => u.email === body.email) || mockUsers[0];
-    localStorage.setItem("hiresphere_demo_role", user.role);
-    setAuthToken("demo-mock-jwt-token");
-    return { access_token: "demo-mock-jwt-token", token_type: "bearer", user };
-  }
-
-  // Auth demo-login
-  if (endpoint.startsWith("/api/auth/demo-login")) {
-    let body = {};
-    try { body = JSON.parse(options.body); } catch (_) {}
-    const role = (body.role || "candidate").toLowerCase();
-    let user;
-    if (role === "admin") {
-      user = mockUsers.find(u => u.role === "admin") || mockUsers[2];
-    } else if (role === "pending_recruiter") {
-      user = mockUsers.find(u => u.role === "recruiter" && u.recruiter_status === "pending") || mockUsers[1];
-    } else if (role === "recruiter") {
-      user = mockUsers.find(u => u.role === "recruiter" && u.recruiter_status === "approved") || mockUsers[1];
-    } else {
-      user = mockUsers.find(u => u.role === "candidate") || mockUsers[0];
-    }
-    localStorage.setItem("hiresphere_demo_role", user.role);
-    setAuthToken("demo-mock-jwt-token");
-    return { access_token: "demo-mock-jwt-token", token_type: "bearer", user };
-  }
-
-  // Jobs
-  if (endpoint === "/api/jobs" && method === "POST") {
-    let body = {};
-    try { body = JSON.parse(options.body); } catch (_) {}
-    // Deduplicate mock job creation
-    const existing = mockJobs.find(j => j.title === body.title && j.company === body.company);
-    if (existing) {
-      return existing;
-    }
-    const newJob = {
-      id: mockJobs.length + 1,
-      recruiter_id: 2,
-      title: body.title,
-      company: body.company,
-      location: body.location || "Remote",
-      job_type: body.job_type || "Full-time",
-      salary_range: body.salary_range || "Competitive",
-      description: body.description || "",
-      application_deadline: body.application_deadline || new Date(Date.now() + 14 * 86400000).toISOString(),
-      skills: body.skills || [],
-      is_active: true,
-      is_flagged_spam: false,
-      created_at: new Date().toISOString(),
-      recruiter: mockUsers[1]
-    };
-    mockJobs = [newJob, ...mockJobs];
-    return newJob;
-  }
-  if (endpoint.startsWith("/api/jobs/my-postings")) {
-    return mockJobs;
-  }
-  if (endpoint.startsWith("/api/jobs/ai-recommendations") || endpoint.startsWith("/api/jobs/ai-search")) {
-    const savedRole = localStorage.getItem("hiresphere_demo_role") || "candidate";
-    const user = mockUsers.find(u => u.role === savedRole) || mockUsers[0];
-    const userSkills = (user.skills || "Python, React, FastAPI, Docker").toLowerCase().split(",").map(s => s.trim());
-
-    return mockJobs.map(job => {
-      const req = (job.skills || []).filter(s => s.is_required).map(s => s.skill_name);
-      const matched = req.filter(s => userSkills.some(us => s.toLowerCase().includes(us) || us.includes(s.toLowerCase())));
-      const missing = req.filter(s => !userSkills.some(us => s.toLowerCase().includes(us) || us.includes(s.toLowerCase())));
-      const score = Math.round(req.length > 0 ? (matched.length / req.length) * 80 + 15 : 75);
-      return {
-        ...job,
-        ai_match: {
-          score: Math.min(98, Math.max(45, score)),
-          level: score >= 75 ? "High Match" : score >= 50 ? "Good Match" : "Potential Match",
-          matched_skills: matched,
-          missing_skills: missing,
-          reasoning: `High alignment with your skills: ${matched.join(", ") || "General tech skillset"}. Matches ${job.job_type} role.`
-        }
-      };
-    }).sort((a, b) => b.ai_match.score - a.ai_match.score);
-  }
-  if (endpoint.startsWith("/api/jobs")) {
-    return mockJobs;
-  }
-
-  // Applications
-  if (endpoint.startsWith("/api/applications/my-applications")) {
-    return mockApps;
-  }
-  if (endpoint.startsWith("/api/applications/job/")) {
-    return mockApps;
-  }
-  if (endpoint.startsWith("/api/applications/pre-analyze-resume")) {
-    // In-browser deterministic score simulation per FR-ANA-05
-    return {
-      job_id: 1,
-      job_title: "Backend Cloud Engineer",
-      matched_skills: ["Python", "FastAPI", "PostgreSQL", "Docker", "AWS"],
-      missing_skills: ["Redis", "Kubernetes"],
-      matched_required: ["Python", "FastAPI", "PostgreSQL", "Docker"],
-      missing_required: [],
-      matched_preferred: ["AWS"],
-      missing_preferred: ["Redis", "Kubernetes"],
-      score: 85.0,
-      formula_used: "Score = 70 * (4/4) + 30 * (1/3) = 70.0 + 10.0 = 80.0%",
-      is_ai_powered: true,
-      ai_status_message: "Demo Mode ATS calculation completed."
-    };
-  }
-  if (endpoint.startsWith("/api/applications/apply")) {
-    const newApp = {
-      id: mockApps.length + 1,
-      job_id: 1,
-      candidate_id: 1,
-      original_filename: "Submitted_Resume.pdf",
-      resume_file_path: "Submitted_Resume.pdf",
-      ats_score: 85.0,
-      matched_skills_json: JSON.stringify(["Python", "FastAPI", "PostgreSQL"]),
-      missing_skills_json: JSON.stringify(["Docker"]),
-      status: "Applied",
-      is_hold_overlay: false,
-      created_at: new Date().toISOString(),
-      job: mockJobs[0],
-      candidate: mockUsers[0]
-    };
-    mockApps = [newApp, ...mockApps];
-    return newApp;
-  }
-
-  // Interviews
-  if (endpoint.startsWith("/api/interviews/slots/job/")) {
-    return mockSlots;
-  }
-  if (endpoint === "/api/interviews/slots" && method === "POST") {
-    let body = {};
-    try { body = JSON.parse(options.body); } catch (_) {}
-    const existing = mockSlots.find(s => s.job_id === body.job_id && s.start_time === body.start_time && s.end_time === body.end_time);
-    if (existing) {
-      return existing;
-    }
-    const newSlot = {
-      id: mockSlots.length + 1,
-      job_id: body.job_id,
-      start_time: body.start_time,
-      end_time: body.end_time,
-      selection_deadline: body.selection_deadline,
-      meeting_link: body.meeting_link || "https://meet.google.com/interview",
-      notes: body.notes || "",
-      is_booked: false,
-      is_cancelled: false
-    };
-    mockSlots = [...mockSlots, newSlot];
-    return newSlot;
-  }
-  if (endpoint.startsWith("/api/interviews/book")) {
-    return { ...mockSlots[0], is_booked: true };
-  }
-  if (endpoint.startsWith("/api/interviews/change-time")) {
-    return { ...mockSlots[1], is_booked: true };
-  }
-
-  // Networking & Feed
-  if (endpoint.startsWith("/api/networking/feed")) {
-    return mockPosts;
-  }
-  if (endpoint.startsWith("/api/networking/connections")) {
-    return [
-      { id: 1, requester_id: 1, receiver_id: 2, status: "ACCEPTED", other_user: mockUsers[1], created_at: new Date().toISOString() }
-    ];
-  }
-  if (endpoint.startsWith("/api/networking/messages/")) {
-    return [
-      { id: 1, sender_id: 2, recipient_id: 1, content: "Hello! Looking forward to reviewing your project.", is_read: true, created_at: new Date(Date.now() - 1800000).toISOString() }
-    ];
-  }
-  if (endpoint.startsWith("/api/networking/messages")) {
-    let body = {};
-    try { body = JSON.parse(options.body); } catch (_) {}
-    return { id: Date.now(), sender_id: 1, recipient_id: body.recipient_id || 2, content: body.content || "", is_read: false, created_at: new Date().toISOString() };
-  }
-
-  // Admin
-  if (endpoint.startsWith("/api/admin/recruiters")) {
-    return mockUsers.filter(u => u.role === "recruiter");
-  }
-  if (endpoint.startsWith("/api/admin/spam-monitor")) {
-    return {
-      jobs: mockJobs.map(j => ({ job: j, is_suspicious: false, is_flagged: false, reason: "Normal" })),
-      applications: mockApps.map(a => ({ application_id: a.id, candidate_name: a.candidate?.full_name, candidate_email: a.candidate?.email, job_title: a.job?.title, ats_score: a.ats_score, status: a.status, is_flagged_spam: false, created_at: a.created_at })),
-      total_jobs: mockJobs.length,
-      total_applications: mockApps.length,
-      total_candidates: 1,
-      total_recruiters: 2,
-      pending_recruiters: 1
-    };
-  }
-
-  return { message: "Mock response" };
-}
