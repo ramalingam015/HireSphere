@@ -36,12 +36,16 @@ if DATABASE_URL.startswith("postgres://"):
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", "")).strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest").strip()
 
-# MinIO / S3-compatible object storage for resumes (required; only the backend talks to it).
-MINIO_ENDPOINT = _require("MINIO_ENDPOINT")  # e.g. http://localhost:8333
-MINIO_ACCESS_KEY = _require("MINIO_ACCESS_KEY")
-MINIO_SECRET_KEY = _require("MINIO_SECRET_KEY")
+# MinIO / S3-compatible object storage for resumes.
+# When MINIO_ENDPOINT is provided (local Docker Compose or production SeaweedFS/AWS S3),
+# S3 storage via boto3 is active. When omitted (e.g. cloud deployments on Render),
+# storage falls back safely to container local filesystem storage without crashing startup.
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "").strip()
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "").strip()
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "").strip()
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "hiresphere").strip()
 MINIO_REGION = os.getenv("MINIO_REGION", "us-east-1").strip()
+USE_S3_STORAGE = bool(MINIO_ENDPOINT and MINIO_ACCESS_KEY and MINIO_SECRET_KEY)
 
 # Allowed browser origins, comma-separated. Default "*" = any origin (open CORS, intentional for the demo).
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
@@ -79,7 +83,7 @@ if APP_ENV == "production":
         _problems.append("ADMIN_REGISTRATION_KEY must not be the default")
     if ":postgrespassword@" in DATABASE_URL:
         _problems.append("POSTGRES_PASSWORD must not be the default")
-    if MINIO_SECRET_KEY == "minioadmin" or MINIO_ACCESS_KEY == "minioadmin":
+    if USE_S3_STORAGE and (MINIO_SECRET_KEY == "minioadmin" or MINIO_ACCESS_KEY == "minioadmin"):
         _problems.append("MINIO_ROOT_USER / MINIO_ROOT_PASSWORD must not be the defaults")
     if _problems:
         raise RuntimeError("Refusing to start with APP_ENV=production:\n  - " + "\n  - ".join(_problems))
