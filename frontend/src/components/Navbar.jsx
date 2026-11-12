@@ -17,7 +17,7 @@ export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenEmailC
             onClick={() => {
               if (user?.role === "recruiter") setCurrentTab("recruiter_dashboard");
               else if (user?.role === "admin") setCurrentTab("admin");
-              else setCurrentTab("jobs");
+              else if (user?.role === "candidate") setCurrentTab("jobs");
             }} 
             className="brand-logo"
             style={{ textAlign: "left" }}
@@ -26,56 +26,49 @@ export const Navbar = ({ currentTab, setCurrentTab, onOpenChatWith, onOpenEmailC
             <span>HireSphere</span>
           </button>
 
-          <nav className="nav-links">
-            {/* Candidate-only Jobs & ATS tab (FR-REC-01/02 Candidate interface) */}
-            {(!user || user?.role === "candidate") && (
-              <button 
-                className={`nav-item ${currentTab === "jobs" ? "active" : ""}`}
-                onClick={() => setCurrentTab("jobs")}
-              >
-                <Briefcase size={16} />
-                <span>Jobs & ATS</span>
-              </button>
-            )}
+          {/* Navigation Links ONLY shown when user is logged in (hidden on sign-in / guest page) */}
+          {user && (
+            <nav className="nav-links">
+              {/* Candidate-only Jobs & ATS tab (Candidate dashboard already includes Applications tab inside) */}
+              {user.role === "candidate" && (
+                <button 
+                  className={`nav-item ${currentTab === "jobs" || currentTab === "applications" ? "active" : ""}`}
+                  onClick={() => setCurrentTab("jobs")}
+                >
+                  <Briefcase size={16} />
+                  <span>Jobs & ATS</span>
+                </button>
+              )}
 
-            {user?.role === "candidate" && (
-              <button 
-                className={`nav-item ${currentTab === "applications" ? "active" : ""}`}
-                onClick={() => setCurrentTab("applications")}
-              >
-                <CheckCircle2 size={16} />
-                <span>My Applications</span>
-              </button>
-            )}
+              {user.role === "recruiter" && (
+                <button 
+                  className={`nav-item ${currentTab === "recruiter_dashboard" ? "active" : ""}`}
+                  onClick={() => setCurrentTab("recruiter_dashboard")}
+                >
+                  <Briefcase size={16} />
+                  <span>Recruiter Hub</span>
+                </button>
+              )}
 
-            {user?.role === "recruiter" && (
-              <button 
-                className={`nav-item ${currentTab === "recruiter_dashboard" ? "active" : ""}`}
-                onClick={() => setCurrentTab("recruiter_dashboard")}
-              >
-                <Briefcase size={16} />
-                <span>Recruiter Hub</span>
-              </button>
-            )}
+              {user.role === "admin" && (
+                <button 
+                  className={`nav-item ${currentTab === "admin" ? "active" : ""}`}
+                  onClick={() => setCurrentTab("admin")}
+                >
+                  <Shield size={16} />
+                  <span>Admin Console</span>
+                </button>
+              )}
 
-            {user?.role === "admin" && (
               <button 
-                className={`nav-item ${currentTab === "admin" ? "active" : ""}`}
-                onClick={() => setCurrentTab("admin")}
+                className={`nav-item ${currentTab === "network" ? "active" : ""}`}
+                onClick={() => setCurrentTab("network")}
               >
-                <Shield size={16} />
-                <span>Admin Console</span>
+                <Users size={16} />
+                <span>Network & Feed</span>
               </button>
-            )}
-
-            <button 
-              className={`nav-item ${currentTab === "network" ? "active" : ""}`}
-              onClick={() => setCurrentTab("network")}
-            >
-              <Users size={16} />
-              <span>Network & Feed</span>
-            </button>
-          </nav>
+            </nav>
+          )}
         </div>
 
         {/* User Info & Role */}
